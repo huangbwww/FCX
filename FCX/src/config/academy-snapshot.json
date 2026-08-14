@@ -1,0 +1,1025 @@
+{
+  "limits": {
+    "basic": 8,
+    "plus": 4
+  },
+  "eligibleRarities": [
+    16,
+    30,
+    94,
+    98,
+    103,
+    109
+  ],
+  "evolutions": {
+    "1v1-close-down": {
+      "base": {
+        "slotId": 2166,
+        "rewardId": 334
+      },
+      "plus": {
+        "slotId": 2204,
+        "rewardId": 334
+      }
+    },
+    "acrobatic": {
+      "base": {
+        "slotId": 2159,
+        "rewardId": 306
+      },
+      "plus": {
+        "slotId": 2193,
+        "rewardId": 306
+      }
+    },
+    "aerial-fortress": {
+      "base": {
+        "slotId": 2152,
+        "rewardId": 320
+      },
+      "plus": {
+        "slotId": 2202,
+        "rewardId": 320
+      }
+    },
+    "anticipate": {
+      "base": {
+        "slotId": 2170,
+        "rewardId": 318
+      },
+      "plus": {
+        "slotId": 2196,
+        "rewardId": 318
+      }
+    },
+    "block": {
+      "base": {
+        "slotId": 2162,
+        "rewardId": 316
+      },
+      "plus": {
+        "slotId": 2212,
+        "rewardId": 316
+      }
+    },
+    "bruiser": {
+      "base": {
+        "slotId": 2157,
+        "rewardId": 329
+      },
+      "plus": {
+        "slotId": 2189,
+        "rewardId": 329
+      }
+    },
+    "chip-shot": {
+      "base": {
+        "slotId": 2155,
+        "rewardId": 302
+      },
+      "plus": {
+        "slotId": 2190,
+        "rewardId": 302
+      }
+    },
+    "cross-claimer": {
+      "base": {
+        "slotId": 2156,
+        "rewardId": 333
+      },
+      "plus": {
+        "slotId": 2198,
+        "rewardId": 333
+      }
+    },
+    "dead-ball": {
+      "base": {
+        "slotId": 2172,
+        "rewardId": 304
+      },
+      "plus": {
+        "slotId": 2194,
+        "rewardId": 304
+      }
+    },
+    "deflector": {
+      "base": {
+        "slotId": 2148,
+        "rewardId": 336
+      },
+      "plus": {
+        "slotId": 2215,
+        "rewardId": 336
+      }
+    },
+    "enforcer": {
+      "base": {
+        "slotId": 2143,
+        "rewardId": 330
+      },
+      "plus": {
+        "slotId": 2182,
+        "rewardId": 330
+      }
+    },
+    "far-reach": {
+      "base": {
+        "slotId": 2173,
+        "rewardId": 335
+      },
+      "plus": {
+        "slotId": 2181,
+        "rewardId": 335
+      }
+    },
+    "far-throw": {
+      "base": {
+        "slotId": 2142,
+        "rewardId": 331
+      },
+      "plus": {
+        "slotId": 2205,
+        "rewardId": 331
+      }
+    },
+    "finesse-shot": {
+      "base": {
+        "slotId": 2141,
+        "rewardId": 301
+      },
+      "plus": {
+        "slotId": 2200,
+        "rewardId": 301
+      }
+    },
+    "first-touch": {
+      "base": {
+        "slotId": 2176,
+        "rewardId": 323
+      },
+      "plus": {
+        "slotId": 2201,
+        "rewardId": 323
+      }
+    },
+    "footwork": {
+      "base": {
+        "slotId": 2174,
+        "rewardId": 332
+      },
+      "plus": {
+        "slotId": 2188,
+        "rewardId": 332
+      }
+    },
+    "gamechanger": {
+      "base": {
+        "slotId": 2154,
+        "rewardId": 308
+      },
+      "plus": {
+        "slotId": 2214,
+        "rewardId": 308
+      }
+    },
+    "incisive-pass": {
+      "base": {
+        "slotId": 2147,
+        "rewardId": 309
+      },
+      "plus": {
+        "slotId": 2203,
+        "rewardId": 309
+      }
+    },
+    "intercept": {
+      "base": {
+        "slotId": 2144,
+        "rewardId": 317
+      },
+      "plus": {
+        "slotId": 2185,
+        "rewardId": 317
+      }
+    },
+    "inventive": {
+      "base": {
+        "slotId": 2164,
+        "rewardId": 314
+      },
+      "plus": {
+        "slotId": 2197,
+        "rewardId": 314
+      }
+    },
+    "jockey": {
+      "base": {
+        "slotId": 2169,
+        "rewardId": 315
+      },
+      "plus": {
+        "slotId": 2191,
+        "rewardId": 315
+      }
+    },
+    "long-ball-pass": {
+      "base": {
+        "slotId": 2146,
+        "rewardId": 311
+      },
+      "plus": {
+        "slotId": 2192,
+        "rewardId": 311
+      }
+    },
+    "long-throw": {
+      "base": {
+        "slotId": 2160,
+        "rewardId": 328
+      },
+      "plus": {
+        "slotId": 2199,
+        "rewardId": 328
+      }
+    },
+    "low-driven-shot": {
+      "base": {
+        "slotId": 2171,
+        "rewardId": 307
+      },
+      "plus": {
+        "slotId": 2187,
+        "rewardId": 307
+      }
+    },
+    "pinged-pass": {
+      "base": {
+        "slotId": 2163,
+        "rewardId": 310
+      },
+      "plus": {
+        "slotId": 2213,
+        "rewardId": 310
+      }
+    },
+    "power-shot": {
+      "base": {
+        "slotId": 2165,
+        "rewardId": 303
+      },
+      "plus": {
+        "slotId": 2216,
+        "rewardId": 303
+      }
+    },
+    "precision-header": {
+      "base": {
+        "slotId": 2158,
+        "rewardId": 305
+      },
+      "plus": {
+        "slotId": 2209,
+        "rewardId": 305
+      }
+    },
+    "press-proven": {
+      "base": {
+        "slotId": 2161,
+        "rewardId": 325
+      },
+      "plus": {
+        "slotId": 2207,
+        "rewardId": 325
+      }
+    },
+    "quick-step": {
+      "base": {
+        "slotId": 2149,
+        "rewardId": 326
+      },
+      "plus": {
+        "slotId": 2210,
+        "rewardId": 326
+      }
+    },
+    "rapid": {
+      "base": {
+        "slotId": 2168,
+        "rewardId": 322
+      },
+      "plus": {
+        "slotId": 2211,
+        "rewardId": 322
+      }
+    },
+    "relentless": {
+      "base": {
+        "slotId": 2167,
+        "rewardId": 327
+      },
+      "plus": {
+        "slotId": 2183,
+        "rewardId": 327
+      }
+    },
+    "slide-tackle": {
+      "base": {
+        "slotId": 2151,
+        "rewardId": 319
+      },
+      "plus": {
+        "slotId": 2195,
+        "rewardId": 319
+      }
+    },
+    "technical": {
+      "base": {
+        "slotId": 2175,
+        "rewardId": 321
+      },
+      "plus": {
+        "slotId": 2184,
+        "rewardId": 321
+      }
+    },
+    "tiki-taka": {
+      "base": {
+        "slotId": 2153,
+        "rewardId": 312
+      },
+      "plus": {
+        "slotId": 2186,
+        "rewardId": 312
+      }
+    },
+    "trickster": {
+      "base": {
+        "slotId": 2150,
+        "rewardId": 324
+      },
+      "plus": {
+        "slotId": 2206,
+        "rewardId": 324
+      }
+    },
+    "whipped-pass": {
+      "base": {
+        "slotId": 2145,
+        "rewardId": 313
+      },
+      "plus": {
+        "slotId": 2208,
+        "rewardId": 313
+      }
+    }
+  },
+  "recommendations": {
+    "CAM": [
+      {
+        "role": "shadow-striker",
+        "playStyles": [
+          "finesse-shot",
+          "incisive-pass",
+          "rapid",
+          "technical",
+          "low-driven-shot",
+          "quick-step",
+          "tiki-taka",
+          "gamechanger",
+          "first-touch",
+          "pinged-pass",
+          "inventive",
+          "press-proven"
+        ]
+      },
+      {
+        "role": "playmaker",
+        "playStyles": [
+          "finesse-shot",
+          "incisive-pass",
+          "low-driven-shot",
+          "technical",
+          "tiki-taka",
+          "pinged-pass",
+          "gamechanger",
+          "first-touch",
+          "press-proven",
+          "quick-step",
+          "inventive",
+          "rapid"
+        ]
+      },
+      {
+        "role": "classic-10",
+        "playStyles": [
+          "finesse-shot",
+          "incisive-pass",
+          "technical",
+          "tiki-taka",
+          "pinged-pass",
+          "low-driven-shot",
+          "gamechanger",
+          "first-touch",
+          "press-proven",
+          "quick-step",
+          "inventive",
+          "rapid"
+        ]
+      },
+      {
+        "role": "half-winger",
+        "playStyles": [
+          "incisive-pass",
+          "rapid",
+          "technical",
+          "finesse-shot",
+          "tiki-taka",
+          "pinged-pass",
+          "gamechanger",
+          "quick-step",
+          "first-touch",
+          "press-proven",
+          "inventive",
+          "low-driven-shot"
+        ]
+      }
+    ],
+    "CB": [
+      {
+        "role": "defender",
+        "playStyles": [
+          "intercept",
+          "bruiser",
+          "anticipate",
+          "jockey",
+          "quick-step",
+          "block",
+          "pinged-pass",
+          "aerial-fortress",
+          "slide-tackle",
+          "tiki-taka",
+          "press-proven",
+          "relentless"
+        ]
+      },
+      {
+        "role": "stopper",
+        "playStyles": [
+          "intercept",
+          "bruiser",
+          "anticipate",
+          "jockey",
+          "quick-step",
+          "block",
+          "slide-tackle",
+          "tiki-taka",
+          "pinged-pass",
+          "relentless",
+          "aerial-fortress",
+          "first-touch"
+        ]
+      },
+      {
+        "role": "wide-back",
+        "playStyles": [
+          "intercept",
+          "anticipate",
+          "quick-step",
+          "jockey",
+          "bruiser",
+          "block",
+          "pinged-pass",
+          "aerial-fortress",
+          "slide-tackle",
+          "tiki-taka",
+          "press-proven",
+          "relentless"
+        ]
+      },
+      {
+        "role": "ball-playing-defender",
+        "playStyles": [
+          "intercept",
+          "bruiser",
+          "anticipate",
+          "jockey",
+          "quick-step",
+          "block",
+          "pinged-pass",
+          "tiki-taka",
+          "first-touch",
+          "press-proven",
+          "aerial-fortress",
+          "slide-tackle"
+        ]
+      }
+    ],
+    "CDM": [
+      {
+        "role": "holding",
+        "playStyles": [
+          "intercept",
+          "pinged-pass",
+          "bruiser",
+          "tiki-taka",
+          "anticipate",
+          "jockey",
+          "incisive-pass",
+          "quick-step",
+          "first-touch",
+          "press-proven",
+          "long-ball-pass",
+          "relentless"
+        ]
+      },
+      {
+        "role": "deep-lying-playmaker",
+        "playStyles": [
+          "intercept",
+          "pinged-pass",
+          "bruiser",
+          "tiki-taka",
+          "incisive-pass",
+          "anticipate",
+          "jockey",
+          "quick-step",
+          "first-touch",
+          "press-proven",
+          "long-ball-pass",
+          "inventive"
+        ]
+      },
+      {
+        "role": "box-crasher",
+        "playStyles": [
+          "incisive-pass",
+          "intercept",
+          "pinged-pass",
+          "finesse-shot",
+          "tiki-taka",
+          "quick-step",
+          "bruiser",
+          "anticipate",
+          "technical",
+          "press-proven",
+          "relentless",
+          "first-touch"
+        ]
+      },
+      {
+        "role": "centre-half",
+        "playStyles": [
+          "intercept",
+          "bruiser",
+          "jockey",
+          "anticipate",
+          "quick-step",
+          "block",
+          "tiki-taka",
+          "pinged-pass",
+          "aerial-fortress",
+          "slide-tackle",
+          "long-ball-pass",
+          "relentless"
+        ]
+      },
+      {
+        "role": "wide-half",
+        "playStyles": [
+          "bruiser",
+          "intercept",
+          "quick-step",
+          "jockey",
+          "anticipate",
+          "incisive-pass",
+          "block",
+          "tiki-taka",
+          "pinged-pass",
+          "press-proven",
+          "relentless",
+          "slide-tackle"
+        ]
+      }
+    ],
+    "CM": [
+      {
+        "role": "box-to-box",
+        "playStyles": [
+          "incisive-pass",
+          "pinged-pass",
+          "intercept",
+          "finesse-shot",
+          "tiki-taka",
+          "bruiser",
+          "anticipate",
+          "quick-step",
+          "technical",
+          "relentless",
+          "press-proven",
+          "first-touch"
+        ]
+      },
+      {
+        "role": "playmaker",
+        "playStyles": [
+          "incisive-pass",
+          "pinged-pass",
+          "finesse-shot",
+          "tiki-taka",
+          "technical",
+          "intercept",
+          "low-driven-shot",
+          "anticipate",
+          "first-touch",
+          "quick-step",
+          "inventive",
+          "press-proven"
+        ]
+      },
+      {
+        "role": "deep-lying-playmaker",
+        "playStyles": [
+          "intercept",
+          "pinged-pass",
+          "bruiser",
+          "incisive-pass",
+          "tiki-taka",
+          "anticipate",
+          "jockey",
+          "quick-step",
+          "first-touch",
+          "press-proven",
+          "long-ball-pass",
+          "inventive"
+        ]
+      },
+      {
+        "role": "holding",
+        "playStyles": [
+          "intercept",
+          "pinged-pass",
+          "bruiser",
+          "anticipate",
+          "tiki-taka",
+          "jockey",
+          "incisive-pass",
+          "quick-step",
+          "first-touch",
+          "press-proven",
+          "long-ball-pass",
+          "relentless"
+        ]
+      },
+      {
+        "role": "half-winger",
+        "playStyles": [
+          "pinged-pass",
+          "intercept",
+          "quick-step",
+          "tiki-taka",
+          "incisive-pass",
+          "finesse-shot",
+          "anticipate",
+          "technical",
+          "jockey",
+          "bruiser",
+          "rapid",
+          "relentless"
+        ]
+      }
+    ],
+    "GK": [
+      {
+        "role": "goalkeeper",
+        "playStyles": [
+          "far-reach",
+          "footwork",
+          "1v1-close-down",
+          "deflector",
+          "cross-claimer",
+          "far-throw",
+          "pinged-pass",
+          "long-ball-pass",
+          "tiki-taka",
+          "press-proven",
+          "first-touch",
+          "incisive-pass"
+        ]
+      },
+      {
+        "role": "ball-playing",
+        "playStyles": [
+          "far-reach",
+          "footwork",
+          "1v1-close-down",
+          "deflector",
+          "cross-claimer",
+          "pinged-pass",
+          "far-throw",
+          "long-ball-pass",
+          "tiki-taka",
+          "press-proven",
+          "first-touch",
+          "incisive-pass"
+        ]
+      },
+      {
+        "role": "sweeper-keeper",
+        "playStyles": [
+          "far-reach",
+          "footwork",
+          "1v1-close-down",
+          "deflector",
+          "cross-claimer",
+          "pinged-pass",
+          "far-throw",
+          "long-ball-pass",
+          "tiki-taka",
+          "press-proven",
+          "first-touch",
+          "incisive-pass"
+        ]
+      }
+    ],
+    "RB / LB": [
+      {
+        "role": "fullback",
+        "playStyles": [
+          "bruiser",
+          "intercept",
+          "quick-step",
+          "jockey",
+          "anticipate",
+          "incisive-pass",
+          "block",
+          "tiki-taka",
+          "pinged-pass",
+          "press-proven",
+          "relentless",
+          "slide-tackle"
+        ]
+      },
+      {
+        "role": "wingback",
+        "playStyles": [
+          "intercept",
+          "pinged-pass",
+          "quick-step",
+          "anticipate",
+          "bruiser",
+          "tiki-taka",
+          "jockey",
+          "incisive-pass",
+          "rapid",
+          "relentless",
+          "press-proven",
+          "whipped-pass"
+        ]
+      },
+      {
+        "role": "falseback",
+        "playStyles": [
+          "intercept",
+          "pinged-pass",
+          "anticipate",
+          "jockey",
+          "tiki-taka",
+          "incisive-pass",
+          "bruiser",
+          "quick-step",
+          "first-touch",
+          "press-proven",
+          "long-ball-pass",
+          "relentless"
+        ]
+      },
+      {
+        "role": "inverted-wingback",
+        "playStyles": [
+          "incisive-pass",
+          "tiki-taka",
+          "quick-step",
+          "anticipate",
+          "intercept",
+          "rapid",
+          "pinged-pass",
+          "jockey",
+          "press-proven",
+          "relentless",
+          "bruiser",
+          "first-touch"
+        ]
+      },
+      {
+        "role": "attacking-wingback",
+        "playStyles": [
+          "rapid",
+          "quick-step",
+          "pinged-pass",
+          "tiki-taka",
+          "incisive-pass",
+          "intercept",
+          "anticipate",
+          "relentless",
+          "jockey",
+          "first-touch",
+          "bruiser",
+          "whipped-pass"
+        ]
+      }
+    ],
+    "RM / LM": [
+      {
+        "role": "inside-forward",
+        "playStyles": [
+          "finesse-shot",
+          "low-driven-shot",
+          "rapid",
+          "quick-step",
+          "technical",
+          "gamechanger",
+          "incisive-pass",
+          "pinged-pass",
+          "tiki-taka",
+          "first-touch",
+          "inventive",
+          "press-proven"
+        ]
+      },
+      {
+        "role": "winger",
+        "playStyles": [
+          "rapid",
+          "finesse-shot",
+          "pinged-pass",
+          "quick-step",
+          "technical",
+          "low-driven-shot",
+          "gamechanger",
+          "incisive-pass",
+          "tiki-taka",
+          "first-touch",
+          "inventive",
+          "press-proven"
+        ]
+      },
+      {
+        "role": "wide-playmaker",
+        "playStyles": [
+          "finesse-shot",
+          "incisive-pass",
+          "technical",
+          "tiki-taka",
+          "pinged-pass",
+          "rapid",
+          "low-driven-shot",
+          "gamechanger",
+          "press-proven",
+          "first-touch",
+          "inventive",
+          "quick-step"
+        ]
+      },
+      {
+        "role": "wide-midfielder",
+        "playStyles": [
+          "rapid",
+          "quick-step",
+          "pinged-pass",
+          "intercept",
+          "tiki-taka",
+          "incisive-pass",
+          "anticipate",
+          "relentless",
+          "whipped-pass",
+          "jockey",
+          "press-proven",
+          "bruiser"
+        ]
+      }
+    ],
+    "RW / LW": [
+      {
+        "role": "inside-forward",
+        "playStyles": [
+          "finesse-shot",
+          "low-driven-shot",
+          "rapid",
+          "quick-step",
+          "technical",
+          "gamechanger",
+          "incisive-pass",
+          "pinged-pass",
+          "tiki-taka",
+          "first-touch",
+          "inventive",
+          "press-proven"
+        ]
+      },
+      {
+        "role": "winger",
+        "playStyles": [
+          "rapid",
+          "finesse-shot",
+          "pinged-pass",
+          "quick-step",
+          "technical",
+          "low-driven-shot",
+          "gamechanger",
+          "incisive-pass",
+          "tiki-taka",
+          "first-touch",
+          "inventive",
+          "press-proven"
+        ]
+      },
+      {
+        "role": "wide-playmaker",
+        "playStyles": [
+          "finesse-shot",
+          "incisive-pass",
+          "technical",
+          "tiki-taka",
+          "pinged-pass",
+          "rapid",
+          "low-driven-shot",
+          "gamechanger",
+          "press-proven",
+          "first-touch",
+          "inventive",
+          "quick-step"
+        ]
+      }
+    ],
+    "ST": [
+      {
+        "role": "advanced-forward",
+        "playStyles": [
+          "finesse-shot",
+          "low-driven-shot",
+          "rapid",
+          "incisive-pass",
+          "gamechanger",
+          "quick-step",
+          "technical",
+          "tiki-taka",
+          "first-touch",
+          "press-proven",
+          "enforcer",
+          "pinged-pass"
+        ]
+      },
+      {
+        "role": "target-forward",
+        "playStyles": [
+          "finesse-shot",
+          "enforcer",
+          "precision-header",
+          "low-driven-shot",
+          "incisive-pass",
+          "rapid",
+          "first-touch",
+          "gamechanger",
+          "tiki-taka",
+          "press-proven",
+          "pinged-pass",
+          "technical"
+        ]
+      },
+      {
+        "role": "poacher",
+        "playStyles": [
+          "finesse-shot",
+          "low-driven-shot",
+          "rapid",
+          "incisive-pass",
+          "first-touch",
+          "gamechanger",
+          "quick-step",
+          "technical",
+          "press-proven",
+          "pinged-pass",
+          "enforcer",
+          "tiki-taka"
+        ]
+      },
+      {
+        "role": "false-9",
+        "playStyles": [
+          "finesse-shot",
+          "incisive-pass",
+          "low-driven-shot",
+          "technical",
+          "gamechanger",
+          "rapid",
+          "tiki-taka",
+          "pinged-pass",
+          "quick-step",
+          "inventive",
+          "first-touch",
+          "press-proven"
+        ]
+      }
+    ]
+  }
+}

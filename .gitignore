@@ -1,0 +1,36 @@
+# Node / FCX build output
+node_modules/
+FCX/node_modules/
+FCX/dist/
+FCX/.vite/
+coverage/
+
+# Legacy/local build output
+dist/
+build/
+*.spec
+*.exe
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime and editor files
+__pycache__/
+.vscode/
+.idea/
+.DS_Store
+*.log
+*.csv
+*.tmp
+*.bak
+~$*
+*.swp
+.pytest_cache/
+.mypy_cache/
+*.egg-info/

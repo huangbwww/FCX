@@ -1,0 +1,58 @@
+import type { PackSelection } from "../../types/packs";
+
+export interface PackWorkItem {
+  id: number;
+  tradable: boolean;
+  rewardPlan?: unknown;
+}
+
+export interface StorageCapacitySnapshot {
+  count: number;
+  capacity: number;
+  available: number;
+}
+
+export function expandPackSelections(
+  selections: readonly (PackSelection & { rewardPlan?: unknown })[],
+  rewardPlan?: unknown,
+): PackWorkItem[] {
+  return selections.flatMap((selection) =>
+    Array.from(
+      { length: Math.max(0, Math.trunc(Number(selection.quantity || 0))) },
+      () => ({
+        id: Number(selection.id),
+        tradable: Boolean(selection.tradable),
+        rewardPlan: selection.rewardPlan || rewardPlan,
+      }),
+    ),
+  );
+}
+
+export function insertImmediatePackSelections(
+  queue: PackWorkItem[],
+  cursor: number,
+  selections: readonly (PackSelection & { rewardPlan?: unknown })[],
+  rewardPlan?: unknown,
+): number {
+  const inserted = expandPackSelections(selections, rewardPlan);
+  queue.splice(cursor, 0, ...inserted);
+  return inserted.length;
+}
+
+export function storageProgressMade(
+  before: StorageCapacitySnapshot,
+  after: StorageCapacitySnapshot,
+): boolean {
+  return after.count < before.count || after.available > before.available;
+}
+
+export function nextStorageRecoveryRound(
+  completed: number,
+  maximum = 10,
+): { allowed: boolean; next: number } {
+  const normalized = Math.max(0, Math.trunc(Number(completed) || 0));
+  const limit = Math.max(1, Math.trunc(Number(maximum) || 10));
+  return normalized >= limit
+    ? { allowed: false, next: normalized }
+    : { allowed: true, next: normalized + 1 };
+}
