@@ -24,7 +24,7 @@ export function classifyRoutineExecutionStop(
     return "exhausted";
   }
   if (
-    /无解|不可行|INFEASIBLE|(?:没有找到|找不到)可行方案|无法生成|无法在.+(?:完成|范围)|最低评分证明超时/.test(
+    /无解|不可行|INFEASIBLE|(?:没有找到|找不到)可行方案|无法生成|无法在.+(?:完成|范围)|最低评分证明超时|未能.*证明最低球队评分/.test(
       reason,
     )
   ) {
@@ -43,4 +43,17 @@ export function isRoutineStepFatal(stopKind: RoutineStopKind): boolean {
     "pack_failed",
     "invalid",
   ].includes(stopKind);
+}
+
+export function shouldTriggerSolveFailureFallback(
+  enabled: boolean,
+  stopKind: RoutineStopKind,
+): boolean {
+  return enabled && stopKind === "no_solution";
+}
+
+export function isSolveFailureFallbackExhausted(
+  stopKind: RoutineStopKind,
+): boolean {
+  return ["no_solution", "exhausted", "unavailable"].includes(stopKind);
 }

@@ -138,7 +138,12 @@ import { StorageOverflowFallbackStore } from "./state/storage-overflow-fallback-
 import { SubmissionCounter } from "./state/submission-counter";
 import { runRoutineSchedule } from "./domain/routines/scheduler";
 import { resolveRoutineSbcTarget } from "./domain/routines/target-resolution";
-import { classifyRoutineExecutionStop } from "./domain/routines/stop-classification";
+import {
+  classifyRoutineExecutionStop,
+  isRoutineStepFatal,
+  isSolveFailureFallbackExhausted,
+  shouldTriggerSolveFailureFallback,
+} from "./domain/routines/stop-classification";
 import { runWithSpecialFallbackLoop } from "./domain/routines/fallback-retry";
 import {
   detectTotwShortage,

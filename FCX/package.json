@@ -1,6 +1,6 @@
 {
   "name": "fcx-auto-sbc-frontend",
-  "version": "26.0.9",
+  "version": "26.1.0",
   "private": true,
   "type": "module",
   "engines": {

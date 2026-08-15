@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyRoutineExecutionStop,
+  isSolveFailureFallbackExhausted,
   isRoutineStepFatal,
+  shouldTriggerSolveFailureFallback,
 } from "../src/domain/routines/stop-classification";
 
 describe("routine stop classification", () => {
@@ -18,6 +20,9 @@ describe("routine stop classification", () => {
     })).toBe("no_solution");
     expect(classifyRoutineExecutionStop({
       reason: "没有找到可行方案",
+    })).toBe("no_solution");
+    expect(classifyRoutineExecutionStop({
+      reason: "未能在求解时间内证明最低球队评分，请提高最大求解时间。",
     })).toBe("no_solution");
     expect(classifyRoutineExecutionStop({ specialShortage: true })).toBe(
       "special_shortage",
@@ -37,5 +42,25 @@ describe("routine stop classification", () => {
     expect(isRoutineStepFatal("submit_failed")).toBe(true);
     expect(isRoutineStepFatal("pack_failed")).toBe(true);
     expect(isRoutineStepFatal("throttled")).toBe(true);
+  });
+
+  it("triggers solve-failure compensation only for a no-solution result", () => {
+    expect(shouldTriggerSolveFailureFallback(true, "no_solution")).toBe(true);
+    expect(shouldTriggerSolveFailureFallback(false, "no_solution")).toBe(false);
+    for (const stopKind of [
+      "special_shortage",
+      "exhausted",
+      "unavailable",
+      "throttled",
+      "submit_failed",
+      "pack_failed",
+      "cancelled",
+    ] as const) {
+      expect(shouldTriggerSolveFailureFallback(true, stopKind)).toBe(false);
+    }
+    expect(isSolveFailureFallbackExhausted("no_solution")).toBe(true);
+    expect(isSolveFailureFallbackExhausted("exhausted")).toBe(true);
+    expect(isSolveFailureFallbackExhausted("unavailable")).toBe(true);
+    expect(isSolveFailureFallbackExhausted("submit_failed")).toBe(false);
   });
 });

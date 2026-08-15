@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "catalog_version": 50,
-  "published_at": "2026-08-13T12:00:00Z",
+  "catalog_version": 52,
+  "published_at": "2026-08-15T00:00:00Z",
   "routines": [
     {
       "id": "upgrade-80-x5",
@@ -38,7 +38,7 @@
       "totalCycles": 5,
       "ignoreValue": true,
       "steps": [
-        { "kind": "sbc", "id": "84-x10", "setId": 1310, "runs": 5, "target": { "preferredSetId": 1310, "nameTokenGroups": [["10", "84", "升级"], ["10x", "84", "upgrade"]], "expectedRewardKind": "pack" } }
+        { "kind": "sbc", "id": "84-x10", "setId": 1355, "runs": 5, "target": { "preferredSetId": 1355, "nameTokenGroups": [["10", "84", "升级"], ["10x", "84", "upgrade"]], "expectedRewardKind": "pack", "expiresAt": "2026-09-17T17:00:01Z" } }
       ],
       "totwFallback": { "enabled": true, "setId": 1017, "runs": 1 },
       "storageFallback": { "enabled": false, "setId": 0, "runs": 1 }
@@ -46,13 +46,11 @@
     {
       "id": "solve-all-dailies",
       "name": "完成全部每日升级",
-      "description": "按青铜、白银、普通黄金、稀有黄金顺序完成当前存在的每日升级。",
+      "description": "按普通黄金、稀有黄金顺序完成当前存在的每日升级。",
       "mode": "exhaust_step",
       "totalCycles": 5,
       "ignoreValue": true,
       "steps": [
-        { "kind": "sbc", "id": "daily-bronze", "setId": 1035, "runs": 7, "target": { "preferredSetId": 1035, "nameTokenGroups": [["每日", "青铜", "升级"], ["daily", "bronze", "upgrade"]], "expectedRewardKind": "pack" } },
-        { "kind": "sbc", "id": "daily-silver", "setId": 1036, "runs": 7, "target": { "preferredSetId": 1036, "nameTokenGroups": [["每日", "白银", "升级"], ["daily", "silver", "upgrade"]], "expectedRewardKind": "pack" } },
         { "kind": "sbc", "id": "daily-common-gold", "setId": 1037, "runs": 7, "target": { "preferredSetId": 1037, "nameTokenGroups": [["每日", "普通", "黄金", "升级"], ["daily", "common", "gold", "upgrade"]], "expectedRewardKind": "pack" } },
         { "kind": "sbc", "id": "daily-rare-gold", "setId": 1038, "runs": 7, "target": { "preferredSetId": 1038, "nameTokenGroups": [["每日", "稀有", "黄金", "升级"], ["daily", "rare", "gold", "upgrade"]], "expectedRewardKind": "pack" } }
       ],
@@ -68,7 +66,7 @@
       "ignoreValue": true,
       "steps": [
         { "kind": "sbc", "id": "provisions", "setId": 1039, "runs": -1, "target": { "preferredSetId": 1039, "nameTokenGroups": [["补给", "升级"], ["provisions", "upgrade"]], "expectedRewardKind": "pack" } },
-        { "kind": "sbc", "id": "player-pick", "setId": 1268, "runs": -1, "target": { "preferredSetId": 1268, "nameTokenGroups": [["球员", "挑选"], ["player", "pick"]], "numericMarker": "any_plus", "expectedRewardKind": "player_pick" } }
+        { "kind": "sbc", "id": "player-pick", "setId": 1351, "runs": -1, "target": { "preferredSetId": 1351, "nameTokenGroups": [["球员", "挑选"], ["player", "pick"]], "numericMarker": "any_plus", "expectedRewardKind": "player_pick", "expiresAt": "2026-08-17T17:00:01Z" } }
       ],
       "totwFallback": { "enabled": true, "setId": 1017, "runs": 1 },
       "storageFallback": { "enabled": false, "setId": 0, "runs": 1 }
@@ -94,7 +92,7 @@
       "totalCycles": 5,
       "ignoreValue": true,
       "steps": [
-        { "kind": "sbc", "id": "futties-provisions", "setId": 1321, "runs": 5, "target": { "preferredSetId": 1321, "nameTokenGroups": [["futties", "补给"], ["futties", "provisions"]], "expectedRewardKind": "pack", "expiresAt": "2026-08-13T17:00:00Z" } }
+        { "kind": "sbc", "id": "futties-provisions", "setId": 1354, "runs": 5, "target": { "preferredSetId": 1354, "nameTokenGroups": [["futties", "补给"], ["futties", "provisions"]], "expectedRewardKind": "pack", "expiresAt": "2026-08-20T17:00:01Z" } }
       ],
       "totwFallback": { "enabled": true, "setId": 1017, "runs": 1 },
       "storageFallback": { "enabled": false, "setId": 0, "runs": 1 }

@@ -20,7 +20,7 @@ function clone<T>(value: T): T {
 }
 
 function createDocument(): RoutineDocument {
-  return { version: 4, builtinOverrides: {}, custom: {} };
+  return { version: 5, builtinOverrides: {}, custom: {} };
 }
 
 export function normalizeRoutineRunCount(value: unknown, fallback = 1): number {
@@ -86,6 +86,11 @@ export function normalizeRoutine(
       : {};
   const fallbackSetId = Number(rawFallback.setId);
   const fallbackRuns = Math.trunc(Number(rawFallback.runs));
+  const rawSolveFailureFallback =
+    record.solveFailureFallback && typeof record.solveFailureFallback === "object"
+      ? (record.solveFailureFallback as Record<string, unknown>)
+      : {};
+  const solveFailureSetId = Number(rawSolveFailureFallback.setId);
   return {
     id,
     origin,
@@ -102,6 +107,14 @@ export function normalizeRoutine(
           ? fallbackSetId
           : 1017,
       runs: fallbackRuns > 0 ? fallbackRuns : 1,
+    },
+    solveFailureFallback: {
+      enabled: rawSolveFailureFallback.enabled === true,
+      setId:
+        Number.isFinite(solveFailureSetId) && solveFailureSetId > 0
+          ? solveFailureSetId
+          : 0,
+      runs: normalizeRoutineRunCount(rawSolveFailureFallback.runs, 1),
     },
     storageFallback: normalizeStorageOverflowFallback(record.storageFallback),
     ...(origin === "builtin"
@@ -141,7 +154,10 @@ export class RoutineStore {
       if (!this.builtinCatalog.some((item) => item.id === normalized.id)) {
         throw new Error("找不到对应的内置流程");
       }
-      document.builtinOverrides[normalized.id] = normalized;
+      document.builtinOverrides[normalized.id] = {
+        ...normalized,
+        builtinSnapshotVersion: this.builtinCatalogVersion,
+      };
     } else {
       document.custom[normalized.id] = normalized;
     }
@@ -160,6 +176,7 @@ export class RoutineStore {
       ignoreValue: true,
       steps: [],
       totwFallback: { enabled: true, setId: 1017, runs: 1 },
+      solveFailureFallback: { enabled: false, setId: 0, runs: 1 },
       storageFallback: { enabled: false, setId: 0, runs: 1 },
     };
   }
@@ -191,8 +208,14 @@ export class RoutineStore {
     ) {
       return false;
     }
+    const isCatalogUpgrade = catalogVersion > this.builtinCatalogVersion;
+    const document = isCatalogUpgrade ? this.getDocument() : undefined;
     this.builtinCatalog = clone(routines);
     this.builtinCatalogVersion = catalogVersion;
+    if (document && Object.keys(document.builtinOverrides).length > 0) {
+      document.builtinOverrides = {};
+      this.persist();
+    }
     this.builtinCatalogRevision += 1;
     return true;
   }
@@ -222,11 +245,22 @@ export class RoutineStore {
         const normalized = normalizeRoutine(value, "custom");
         if (normalized && normalized.id === id) document.custom[id] = normalized;
       }
+      const removedStaleBuiltinOverrides: string[] = [];
+      for (const [id, routine] of Object.entries(document.builtinOverrides)) {
+        if (
+          Number(routine.builtinSnapshotVersion || 0)
+          < this.builtinCatalogVersion
+        ) {
+          delete document.builtinOverrides[id];
+          removedStaleBuiltinOverrides.push(id);
+        }
+      }
       this.document = document;
       const normalizedBuiltinOverrides = JSON.stringify(document.builtinOverrides);
       const normalizedCustom = JSON.stringify(document.custom);
       if (
-        parsed.version !== 4
+        parsed.version !== 5
+        || removedStaleBuiltinOverrides.length > 0
         || normalizedBuiltinOverrides !== JSON.stringify(parsed.builtinOverrides || {})
         || normalizedCustom !== JSON.stringify(parsed.custom || {})
       ) {

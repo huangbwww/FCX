@@ -70,6 +70,7 @@ const reviewWholeSbcSetPlan = (plan, excludedItemIds, { ignoreValue = false } = 
       description: `${plan.challenges.length} 个挑战 · ${totalPlayers} 名球员 · ${ignoreValue ? "本次忽略价值" : `总预计成本 ${Math.round(totalCost).toLocaleString()}`}。确认前不会应用、保存或提交阵容。`,
       content,
       dismissible: false,
+      taskInteraction: true,
     });
     modal.panel.classList.add("fcx-modal-panel--routine");
     const cancel = createModalButton("取消任务");

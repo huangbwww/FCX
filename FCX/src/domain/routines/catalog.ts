@@ -284,6 +284,7 @@ function parseRoutine(
       "ignoreValue",
       "steps",
       "totwFallback",
+      "solveFailureFallback",
       "storageFallback",
     ],
     [
@@ -323,6 +324,13 @@ function parseRoutine(
     ignoreValue: booleanValue(input.ignoreValue, `${path}.ignoreValue`),
     steps,
     totwFallback: parseFallback(input.totwFallback, `${path}.totwFallback`, false),
+    solveFailureFallback: input.solveFailureFallback === undefined
+      ? { enabled: false, setId: 0, runs: 1 }
+      : parseFallback(
+          input.solveFailureFallback,
+          `${path}.solveFailureFallback`,
+          true,
+        ),
     storageFallback: parseFallback(input.storageFallback, `${path}.storageFallback`, true),
     builtinSnapshotVersion: catalogVersion,
   };

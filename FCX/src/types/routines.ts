@@ -48,6 +48,12 @@ export interface StorageOverflowFallback {
   runs: number;
 }
 
+export interface RoutineSolveFailureFallback {
+  enabled: boolean;
+  setId: number;
+  runs: number;
+}
+
 export interface RoutineDefinition {
   id: string;
   origin: RoutineOrigin;
@@ -58,12 +64,13 @@ export interface RoutineDefinition {
   ignoreValue: boolean;
   steps: RoutineStep[];
   totwFallback: RoutineTotwFallback;
+  solveFailureFallback: RoutineSolveFailureFallback;
   storageFallback: StorageOverflowFallback;
   builtinSnapshotVersion?: number;
 }
 
 export interface RoutineDocument {
-  version: 4;
+  version: 5;
   builtinOverrides: Record<string, RoutineDefinition>;
   custom: Record<string, RoutineDefinition>;
 }
@@ -112,6 +119,7 @@ export interface RoutineExecutionContext {
   stopKind?: RoutineStopKind;
   stopReason?: string;
   isTotwFallback: boolean;
+  isSolveFailureFallback: boolean;
 }
 
 export interface SubmissionCounterSnapshot {

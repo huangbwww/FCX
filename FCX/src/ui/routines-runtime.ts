@@ -527,6 +527,55 @@ const openRoutineEditor = (routine, sets, initialPackGroups = []) => {
   fallbackGrid.append(enabledLabel, fallbackSelect, fallbackRuns);
   fallback.appendChild(fallbackGrid);
 
+  const solveFailureFallback = document.createElement("section");
+  solveFailureFallback.className = "fcx-routine-editor-section";
+  solveFailureFallback.innerHTML =
+    "<h3>求解失败自动做</h3><p>目标SBC无解或无法满足评分窗口时，先完成所选SBC并开启准确奖励，再重试原步骤一次；输入 -1 持续执行。</p>";
+  const solveFailureFallbackGrid = document.createElement("div");
+  solveFailureFallbackGrid.className = "fcx-routine-fallback-grid";
+  const solveFailureEnabledLabel = document.createElement("label");
+  solveFailureEnabledLabel.className = "fcx-routine-check";
+  const solveFailureEnabled = document.createElement("input");
+  solveFailureEnabled.type = "checkbox";
+  solveFailureEnabled.checked = draft.solveFailureFallback?.enabled === true;
+  solveFailureEnabledLabel.append(
+    solveFailureEnabled,
+    document.createTextNode("启用求解失败自动做")
+  );
+  const solveFailureSelect = document.createElement("select");
+  const solveFailurePlaceholder = document.createElement("option");
+  solveFailurePlaceholder.value = "0";
+  solveFailurePlaceholder.textContent = "请选择补偿 SBC";
+  solveFailureSelect.appendChild(solveFailurePlaceholder);
+  const solveFailureSetId = Number(draft.solveFailureFallback?.setId || 0);
+  const solveFailureKnown = sets.some(
+    (set) => Number(set.id) === solveFailureSetId
+  );
+  if (solveFailureSetId > 0 && !solveFailureKnown) {
+    const option = document.createElement("option");
+    option.value = String(solveFailureSetId);
+    option.textContent = `SBC #${solveFailureSetId}（已过期或不可用）`;
+    solveFailureSelect.appendChild(option);
+  }
+  for (const set of sets) {
+    const option = document.createElement("option");
+    option.value = String(set.id);
+    option.textContent = set.name;
+    solveFailureSelect.appendChild(option);
+  }
+  solveFailureSelect.value = String(solveFailureSetId);
+  const solveFailureRuns = document.createElement("input");
+  solveFailureRuns.type = "text";
+  solveFailureRuns.inputMode = "numeric";
+  solveFailureRuns.value = String(draft.solveFailureFallback?.runs || 1);
+  solveFailureRuns.title = "输入 1–100；-1 表示持续执行";
+  solveFailureFallbackGrid.append(
+    solveFailureEnabledLabel,
+    solveFailureSelect,
+    solveFailureRuns
+  );
+  solveFailureFallback.appendChild(solveFailureFallbackGrid);
+
   const storageFallback = document.createElement("section");
   storageFallback.className = "fcx-routine-editor-section";
   storageFallback.innerHTML =
@@ -573,7 +622,13 @@ const openRoutineEditor = (routine, sets, initialPackGroups = []) => {
   storageRuns.title = "输入 1–100；-1 表示持续执行";
   storageFallbackGrid.append(storageEnabledLabel, storageSelect, storageRuns);
   storageFallback.appendChild(storageFallbackGrid);
-  content.append(basics, stepSection, fallback, storageFallback);
+  content.append(
+    basics,
+    stepSection,
+    fallback,
+    solveFailureFallback,
+    storageFallback
+  );
 
   const modal = openFcxModal({
     id: "fcx-routine-editor-modal",
@@ -600,6 +655,12 @@ const openRoutineEditor = (routine, sets, initialPackGroups = []) => {
     draft.totwFallback.enabled = enabled.checked;
     draft.totwFallback.setId = Number(fallbackSelect.value) || 1017;
     draft.totwFallback.runs = Math.max(1, Math.trunc(Number(fallbackRuns.value) || 1));
+    draft.solveFailureFallback = {
+      enabled: solveFailureEnabled.checked,
+      setId: Number(solveFailureSelect.value) || 0,
+      runs: normalizeRoutineRunsInput(solveFailureRuns.value, 1),
+    };
+    solveFailureRuns.value = String(draft.solveFailureFallback.runs);
     draft.storageFallback = {
       enabled: storageEnabled.checked,
       setId: Number(storageSelect.value) || 0,
@@ -611,6 +672,22 @@ const openRoutineEditor = (routine, sets, initialPackGroups = []) => {
           ),
     };
     storageRuns.value = String(draft.storageFallback.runs);
+    const solveFailureSet = setById.get(
+      Number(draft.solveFailureFallback.setId)
+    );
+    if (
+      draft.solveFailureFallback.enabled
+      && (
+        !draft.solveFailureFallback.setId
+        || getRoutineSetState(solveFailureSet).kind !== "available"
+      )
+    ) {
+      queueFcxNotification([
+        "请先选择一个当前可用的求解失败补偿 SBC。",
+        UINotificationType.NEGATIVE,
+      ]);
+      return false;
+    }
     const storageSet = setById.get(Number(draft.storageFallback.setId));
     if (
       draft.storageFallback.enabled

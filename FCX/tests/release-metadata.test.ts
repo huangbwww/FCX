@@ -20,7 +20,7 @@ const releaseAssemblerSource = readFileSync(
 
 describe("userscript release metadata", () => {
   it("uses the FCX brand and package version as the release source", () => {
-    expect(packageManifest.version).toBe("26.0.9");
+    expect(packageManifest.version).toBe("26.1.0");
     expect(viteSource).toContain('name: "一阵失心风FCX"');
     expect(viteSource).toContain('author: "一阵失心风"');
     expect(viteSource).toContain('license: "MIT"');
@@ -57,7 +57,7 @@ describe("userscript release metadata", () => {
   });
 
   it("generates the public update manifest from the package version", () => {
-    expect(releaseInfo.release_date).toBe("2026-08-13");
+    expect(releaseInfo.release_date).toBe("2026-08-15");
     expect(releaseInfo.update_notes.length).toBeGreaterThan(0);
     expect(releaseAssemblerSource).toContain(
       "latest_version: packageManifest.version",

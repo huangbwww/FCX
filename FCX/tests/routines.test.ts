@@ -78,7 +78,10 @@ describe("FCX routine definitions", () => {
     expect(
       builtinRoutines.every(
         (routine) =>
-          !routine.storageFallback.enabled
+          !routine.solveFailureFallback.enabled
+          && routine.solveFailureFallback.setId === 0
+          && routine.solveFailureFallback.runs === 1
+          && !routine.storageFallback.enabled
           && routine.storageFallback.setId === 0
           && routine.storageFallback.runs === 1,
       ),
@@ -149,12 +152,59 @@ describe("FCX routine definitions", () => {
 
     const custom = store.create("自定义测试");
     expect(custom.ignoreValue).toBe(true);
+    expect(custom.solveFailureFallback).toEqual({
+      enabled: false,
+      setId: 0,
+      runs: 1,
+    });
     expect(custom.storageFallback).toEqual({ enabled: false, setId: 0, runs: 1 });
+    custom.solveFailureFallback = {
+      enabled: true,
+      setId: 1261,
+      runs: -1,
+    };
     custom.steps.push(sbcStep("one", 1017));
     store.save(custom);
     expect(store.get(custom.id)?.origin).toBe("custom");
+    expect(new RoutineStore(storage).get(custom.id)?.solveFailureFallback)
+      .toEqual({ enabled: true, setId: 1261, runs: -1 });
     expect(store.deleteCustom(custom.id)).toBe(true);
     expect(store.get(custom.id)).toBeUndefined();
+  });
+
+  it("drops stale bundled overrides on startup without changing custom flows", () => {
+    const storage = new MemoryStorage();
+    const store = new RoutineStore(storage);
+    const builtin = store.get("totw-x5")!;
+    store.save({
+      ...builtin,
+      name: "旧版内置修改",
+      builtinSnapshotVersion: 1,
+    });
+    const custom = store.create("必须保留的自定义流程");
+    custom.steps.push(sbcStep("custom", 1017));
+    store.save(custom);
+    const customBeforeUpgrade = store.get(custom.id);
+
+    const persisted = JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!);
+    persisted.builtinOverrides["totw-x5"].builtinSnapshotVersion = 51;
+    storage.setItem(ROUTINE_STORAGE_KEY, JSON.stringify(persisted));
+
+    const upgraded = new RoutineStore(storage);
+    expect(upgraded.get("totw-x5")?.name).not.toBe("旧版内置修改");
+    expect(upgraded.get(custom.id)).toEqual(customBeforeUpgrade);
+    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!)
+      .builtinOverrides["totw-x5"]).toBeUndefined();
+  });
+
+  it("stamps builtin edits with the active catalog version", () => {
+    const storage = new MemoryStorage();
+    const store = new RoutineStore(storage);
+    const builtin = store.get("totw-x5")!;
+    store.save({ ...builtin, builtinSnapshotVersion: 1 });
+
+    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!)
+      .builtinOverrides["totw-x5"].builtinSnapshotVersion).toBe(52);
   });
 
   it("drops stale target metadata when a saved step points at another SBC", () => {
@@ -228,7 +278,12 @@ describe("FCX routine definitions", () => {
       setId: 0,
       runs: 1,
     });
-    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(4);
+    expect(new RoutineStore(storage).get("legacy")?.solveFailureFallback).toEqual({
+      enabled: false,
+      setId: 0,
+      runs: 1,
+    });
+    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(5);
   });
 
   it("persists typed pack steps and bounds cycle and step counts", () => {
@@ -241,7 +296,7 @@ describe("FCX routine definitions", () => {
     const saved = new RoutineStore(storage).get(custom.id)!;
     expect(saved.totalCycles).toBe(100);
     expect(saved.steps[0]).toEqual(packStep("pack", 9001, 100, true));
-    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(4);
+    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(5);
   });
 
   it("ships the mixed step editor and keeps numeric inputs spinner-free", () => {
@@ -253,6 +308,8 @@ describe("FCX routine definitions", () => {
     expect(source).toContain('stepHeader.innerHTML = "<div><h3>流程步骤</h3>');
     expect(source).toContain('totalCyclesInput.type = "text"');
     expect(source).toContain('input.inputMode = "numeric"');
+    expect(source).toContain("求解失败自动做");
+    expect(source).toContain("draft.solveFailureFallback = {");
     expect(source).toContain("delete step.target");
     expect(source).toContain("const savedRoutine = fcxRoutineStore.get(draft.id)");
     expect(source).toContain("await runFcxRoutine(savedRoutine)");
@@ -264,6 +321,10 @@ describe("FCX routine definitions", () => {
     expect(runtime).toContain("runPackSelections(");
     expect(runtime).toContain("showSummary: false");
     expect(runtime).toContain("createStorageOverflowRecovery(packExecution)");
+    expect(runtime).toContain("runSolveFailureFallback");
+    expect(runtime).toContain("shouldTriggerSolveFailureFallback(");
+    expect(runtime).toContain("isRoutineStepFatal(result.stopKind)");
+    expect(runtime).toContain("isSolveFailureFallback");
     expect(runtime).not.toContain("probeRequestedRuns");
     expect(runtime).not.toContain("probeRepeatable");
   });

@@ -71,6 +71,24 @@ describe("normal SBC special fallback loop", () => {
     expect(outcome.replenishmentCycles).toBe(1);
   });
 
+  it("does not replenish after the final requested run is already complete", async () => {
+    const attempt = vi.fn(async () => ({
+      completedRuns: 1,
+      specialShortage: { groupIds: [83] },
+    }));
+    const replenish = vi.fn(async () => true);
+
+    const outcome = await runWithSpecialFallbackLoop({
+      requestedRuns: 1,
+      attempt,
+      replenish,
+    });
+
+    expect(outcome.totalCompletedRuns).toBe(1);
+    expect(outcome.replenishmentCycles).toBe(0);
+    expect(replenish).not.toHaveBeenCalled();
+  });
+
   it("stops after a successful replenishment produces no target progress", async () => {
     const attempt = vi.fn(async () => ({
       completedRuns: 0,

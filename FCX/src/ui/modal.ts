@@ -6,6 +6,11 @@ export interface FcxModalOptions {
   labelledBy?: string;
   documentRef?: Document;
   dismissible?: boolean;
+  /**
+   * Places a required decision dialog above the FCX task shield while the
+   * shield continues to block the underlying EA page.
+   */
+  taskInteraction?: boolean;
 }
 
 export interface FcxModalHandle {
@@ -27,6 +32,9 @@ export function openFcxModal(options: FcxModalOptions): FcxModalHandle {
   const root = documentRef.createElement("div");
   root.id = options.id;
   root.className = "fcx-modal-backdrop";
+  if (options.taskInteraction === true) {
+    root.classList.add("fcx-modal-backdrop--task-interaction");
+  }
   const panel = documentRef.createElement("section");
   panel.className = "fcx-modal-panel";
   panel.setAttribute("role", "dialog");

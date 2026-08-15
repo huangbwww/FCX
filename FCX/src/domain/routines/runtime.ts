@@ -15,6 +15,7 @@ const createRoutineContext = (routine) => ({
   storageFallback: routine.storageFallback || { enabled: false, setId: 0, runs: 1 },
   storageRecoveryCount: 0,
   isTotwFallback: false,
+  isSolveFailureFallback: false,
 });
 
 const beginRoutineTask = () => {
@@ -22,7 +23,11 @@ const beginRoutineTask = () => {
 };
 
 const openRoutineRewards = async (result, context, label) => {
-  if (!result?.execution || !hasPendingTrackedRewards(result.execution.rewardPlan)) {
+  if (!result?.execution) {
+    return true;
+  }
+  if (!hasPendingTrackedRewards(result.execution.rewardPlan)) {
+    mergePackTaskSummary(context.packSummary, result.execution.packSummary);
     return true;
   }
   if (context.cancelled || isTaskCancellationRequested()) return false;
@@ -176,7 +181,13 @@ const executeRoutineSet = async (
 
   reportOperationStatus(
     "SBC",
-    `${context.isTotwFallback ? "周黑补给" : "永动机滚卡"} · ${set.name}`
+    `${
+      context.isTotwFallback
+        ? "周黑补给"
+        : context.isSolveFailureFallback
+          ? "求解失败补偿"
+          : "永动机滚卡"
+    } · ${set.name}`
   );
   const options = {
     ignoreValue: routine.ignoreValue === true,
@@ -262,10 +273,298 @@ const runTotwFallback = async (routine, context) => {
       }
     }
     invalidateSbcCache();
-    await fetchPlayers();
+    invalidateInventorySnapshot("club");
+    invalidateInventorySnapshot("storage");
+    await fetchPlayers({ force: true });
     return true;
   } finally {
     context.isTotwFallback = false;
+  }
+};
+
+const executeRoutineStepWithTotwFallback = async (
+  routine,
+  step,
+  requestedRuns,
+  context
+) => {
+  const attemptTarget = async (remainingRuns) => {
+    let result = await executeRoutineSet(
+      routine,
+      step,
+      remainingRuns,
+      context,
+      { detectShortage: true }
+    );
+    if (
+      result.stopKind === "special_shortage"
+      && (result.rewardPackIds.length || result.rewardPlayerPickIds?.length)
+    ) {
+      const opened = await openRoutineRewards(
+        result,
+        context,
+        result.setName || `SBC ${step.setId}`
+      );
+      if (!opened) {
+        result = {
+          ...result,
+          rewardPackIds: [],
+          rewardPlayerPickIds: [],
+          stopKind: "pack_failed",
+          reason: context.stopReason,
+        };
+      } else {
+        result = {
+          ...result,
+          rewardPackIds: [],
+          rewardPlayerPickIds: [],
+        };
+      }
+    }
+    return {
+      completedRuns: Number(result.completedRuns || 0),
+      specialShortage:
+        result.stopKind === "special_shortage"
+          ? result.execution?.specialShortage || { detected: true }
+          : undefined,
+      value: result,
+    };
+  };
+
+  if (!routine.totwFallback?.enabled) {
+    const attempt = await attemptTarget(requestedRuns);
+    const result = attempt.value;
+    if (result.stopKind !== "special_shortage") return result;
+    const shortage = result.execution?.specialShortage;
+    const stepName = result.setName || `SBC ${step.setId}`;
+    const shortageReason = shortage
+      ? `步骤“${stepName}”已跳过：缺少周黑或特殊卡，且未启用“缺周黑自动补给”（需要 ${Number(shortage.required || 0)} 名，当前 ${Number(shortage.available || 0)} 名）。`
+      : `步骤“${stepName}”已跳过：缺少周黑或特殊卡，且未启用“缺周黑自动补给”。`;
+    console.warn("[FCX][Routine] 缺少特殊卡，已跳过步骤", {
+      stepId: step.id,
+      setId: Number(step.setId),
+      stepName,
+      required: Number(shortage?.required || 0),
+      available: Number(shortage?.available || 0),
+      fallbackEnabled: false,
+    });
+    reportOperationStatus("Routine", shortageReason, "error");
+    return { ...result, reason: shortageReason };
+  }
+
+  const outcome = await runWithSpecialFallbackLoop({
+    requestedRuns,
+    attempt: attemptTarget,
+    replenish: async ({ cycle, completedRuns, remainingRuns }) => {
+      const targetLabel = requestedRuns === -1
+        ? `${completedRuns} / 持续执行`
+        : `${completedRuns} / ${requestedRuns}`;
+      reportOperationStatus(
+        "SBC",
+        `主线进度 ${targetLabel} · 正在执行第 ${cycle} 轮周黑补给`
+      );
+      console.info("[FCX][Routine] TOTW fallback cycle", {
+        stepId: step.id,
+        setId: Number(step.setId),
+        cycle,
+        completedRuns,
+        remainingRuns,
+        fallbackSetId: Number(routine.totwFallback.setId),
+        fallbackRuns: Number(routine.totwFallback.runs || 1),
+      });
+      if (Number(routine.totwFallback.setId) === Number(step.setId)) {
+        context.stopKind = "invalid";
+        context.stopReason = "周黑补给 SBC 不能与当前目标 SBC 相同。";
+        return false;
+      }
+      return runTotwFallback(routine, context);
+    },
+  });
+  const result = outcome.result.value;
+  const totalCompleted = outcome.totalCompletedRuns;
+
+  if (outcome.replenishmentFailed) {
+    return {
+      ...result,
+      completedRuns: totalCompleted,
+      rewardPackIds: [],
+      rewardPlayerPickIds: [],
+      stopKind: context.stopKind || "invalid",
+      reason: context.stopReason || "周黑自动补给失败。",
+    };
+  }
+
+  if (outcome.stoppedForNoProgress) {
+    const reason =
+      `第 ${outcome.replenishmentCycles} 轮周黑补给完成后，主线立即重试仍未找到可用特殊卡，已停止以避免重复补给。请检查球员保护、排除规则和价值设置。`;
+    return {
+      ...result,
+      completedRuns: totalCompleted,
+      rewardPackIds: [],
+      rewardPlayerPickIds: [],
+      stopKind: "special_shortage",
+      reason,
+    };
+  }
+
+  if (requestedRuns !== -1 && totalCompleted >= requestedRuns) {
+    return {
+      ...result,
+      completedRuns: totalCompleted,
+      stopKind: "done",
+      reason: undefined,
+    };
+  }
+
+  return {
+    ...result,
+    completedRuns: totalCompleted,
+  };
+};
+
+const runSolveFailureFallback = async (
+  routine,
+  context,
+  failedStep,
+  failedResult
+) => {
+  const fallback = routine.solveFailureFallback;
+  if (!fallback?.enabled) {
+    return { success: false, attempted: false, completedRuns: 0 };
+  }
+  if (Number(fallback.setId) === Number(failedResult.setId || failedStep.setId)) {
+    return {
+      success: false,
+      attempted: false,
+      completedRuns: 0,
+      reason: "求解失败补偿 SBC 不能与当前失败 SBC 相同。",
+    };
+  }
+
+  const requestedRuns = Number(fallback.runs) === -1
+    ? -1
+    : Math.min(100, Math.max(1, Number(fallback.runs || 1)));
+  const failedStepName = failedResult.setName || `SBC ${failedStep.setId}`;
+  let completedRuns = 0;
+  let lastReason;
+  context.isSolveFailureFallback = true;
+  try {
+    while (
+      !context.cancelled
+      && !isTaskCancellationRequested()
+      && (requestedRuns === -1 || completedRuns < requestedRuns)
+    ) {
+      const progressLabel = requestedRuns === -1
+        ? `${completedRuns + 1} / 持续执行`
+        : `${completedRuns + 1} / ${requestedRuns}`;
+      reportOperationStatus(
+        "SBC",
+        `步骤“${failedStepName}”求解无解，正在执行补偿 SBC #${fallback.setId} · ${progressLabel}`
+      );
+      const result = await executeRoutineSet(
+        routine,
+        {
+          kind: "sbc",
+          id: `solve-failure-fallback-${failedStep.id}-${completedRuns + 1}`,
+          setId: fallback.setId,
+          runs: 1,
+        },
+        1,
+        context,
+        { detectShortage: false }
+      );
+
+      const completedThisAttempt = Number(result.completedRuns || 0);
+      if (completedThisAttempt > 0) {
+        completedRuns += completedThisAttempt;
+        const opened = await openRoutineRewards(
+          result,
+          context,
+          result.setName || `求解失败补偿 SBC ${fallback.setId}`
+        );
+        if (!opened) {
+          return {
+            success: false,
+            attempted: true,
+            fatal: true,
+            completedRuns,
+            stopKind: context.stopKind || "pack_failed",
+            reason: context.stopReason || "求解失败补偿的奖励处理失败。",
+          };
+        }
+        if (isRoutineStepFatal(result.stopKind)) {
+          return {
+            success: false,
+            attempted: true,
+            fatal: true,
+            completedRuns,
+            stopKind: result.stopKind,
+            reason: result.reason || "求解失败补偿在提交后异常结束。",
+          };
+        }
+        continue;
+      }
+
+      lastReason = result.reason;
+      if (isSolveFailureFallbackExhausted(result.stopKind)) {
+        break;
+      }
+      return {
+        success: false,
+        attempted: true,
+        fatal: true,
+        completedRuns,
+        stopKind: result.stopKind,
+        reason: result.reason || "求解失败补偿未能完成。",
+      };
+    }
+
+    if (context.cancelled || isTaskCancellationRequested()) {
+      return {
+        success: false,
+        attempted: true,
+        fatal: true,
+        completedRuns,
+        stopKind: "cancelled",
+        reason: "用户结束了任务。",
+      };
+    }
+    if (completedRuns <= 0) {
+      return {
+        success: false,
+        attempted: true,
+        completedRuns: 0,
+        reason:
+          lastReason
+          || `补偿 SBC ${fallback.setId} 当前不可用，原步骤未能重试。`,
+      };
+    }
+
+    invalidateSbcCache(fallback.setId);
+    invalidateSbcCache(failedResult.setId || failedStep.setId);
+    invalidateInventorySnapshot("club");
+    invalidateInventorySnapshot("storage");
+    await fetchPlayers({ force: true });
+    return {
+      success: true,
+      attempted: true,
+      completedRuns,
+    };
+  } catch (error) {
+    const reason = String(
+      error?.message || error || "求解失败补偿执行失败。"
+    );
+    console.error("[FCX][Routine] solve failure fallback failed", error);
+    return {
+      success: false,
+      attempted: true,
+      fatal: true,
+      completedRuns,
+      stopKind: "invalid",
+      reason,
+    };
+  } finally {
+    context.isSolveFailureFallback = false;
   }
 };
 
@@ -275,110 +574,107 @@ const executeRoutineStepWithFallback = async (
   requestedRuns,
   context
 ) => {
-  let totalCompleted = 0;
-  let remaining = requestedRuns;
-  let fallbackAttempted = false;
+  const firstResult = await executeRoutineStepWithTotwFallback(
+    routine,
+    step,
+    requestedRuns,
+    context
+  );
+  const firstCompleted = Number(firstResult.completedRuns || 0);
+  if (!shouldTriggerSolveFailureFallback(
+    routine.solveFailureFallback?.enabled === true,
+    firstResult.stopKind
+  )) {
+    return firstResult;
+  }
 
-  while (!context.cancelled && !isTaskCancellationRequested()) {
-    const result = await executeRoutineSet(
-      routine,
-      step,
-      remaining,
+  if (
+    firstResult.rewardPackIds.length
+    || firstResult.rewardPlayerPickIds?.length
+    || firstResult.execution
+  ) {
+    const opened = await openRoutineRewards(
+      firstResult,
       context,
-      { detectShortage: true }
+      firstResult.setName || `SBC ${step.setId}`
     );
-    totalCompleted += result.completedRuns;
-    if (result.stopKind !== "special_shortage") {
-      return { ...result, completedRuns: totalCompleted };
-    }
-
-    if (result.rewardPackIds.length || result.rewardPlayerPickIds?.length) {
-      const opened = await openRoutineRewards(
-        result,
-        context,
-        result.setName || `SBC ${step.setId}`
-      );
-      if (!opened) {
-        return {
-          ...result,
-          completedRuns: totalCompleted,
-          rewardPackIds: [],
-          rewardPlayerPickIds: [],
-          stopKind: "pack_failed",
-          reason: context.stopReason,
-        };
-      }
-    }
-    if (fallbackAttempted || !routine.totwFallback?.enabled) {
-      let shortageReason;
-      if (!fallbackAttempted && !routine.totwFallback?.enabled) {
-        const shortage = result.execution?.specialShortage;
-        const stepName = result.setName || `SBC ${step.setId}`;
-        shortageReason = shortage
-          ? `步骤“${stepName}”已跳过：缺少周黑或特殊卡，且未启用“缺周黑自动补给”（需要 ${Number(shortage.required || 0)} 名，当前 ${Number(shortage.available || 0)} 名）。`
-          : `步骤“${stepName}”已跳过：缺少周黑或特殊卡，且未启用“缺周黑自动补给”。`;
-        console.warn("[FCX][Routine] 缺少特殊卡，已跳过步骤", {
-          stepId: step.id,
-          setId: Number(step.setId),
-          stepName,
-          required: Number(shortage?.required || 0),
-          available: Number(shortage?.available || 0),
-          fallbackEnabled: false,
-        });
-        reportOperationStatus("Routine", shortageReason, "error");
-      }
+    if (!opened) {
       return {
-        ...result,
-        completedRuns: totalCompleted,
-        rewardPackIds: [],
-        reason:
-          fallbackAttempted
-            ? "完成周黑补给后候选池仍不满足目标 SBC 的周黑要求。"
-            : shortageReason || result.reason,
-      };
-    }
-    if (Number(routine.totwFallback.setId) === Number(step.setId)) {
-      return {
-        ...result,
-        completedRuns: totalCompleted,
+        ...firstResult,
         rewardPackIds: [],
         rewardPlayerPickIds: [],
-        stopKind: "invalid",
-        reason: "周黑补给 SBC 不能与当前目标 SBC 相同。",
-      };
-    }
-    fallbackAttempted = true;
-    if (!(await runTotwFallback(routine, context))) {
-      return {
-        ...result,
-        completedRuns: totalCompleted,
-        rewardPackIds: [],
-        rewardPlayerPickIds: [],
-        stopKind: context.stopKind || "invalid",
-        reason: context.stopReason || "周黑自动补给失败。",
-      };
-    }
-    remaining = requestedRuns === -1 ? -1 : Math.max(0, requestedRuns - totalCompleted);
-    if (remaining === 0) {
-      return {
-        ...result,
-        completedRuns: totalCompleted,
-        rewardPackIds: [],
-        rewardPlayerPickIds: [],
-        stopKind: "done",
-        reason: undefined,
+        progressUnits: firstCompleted,
+        stopKind: "pack_failed",
+        reason: context.stopReason || "原步骤已完成部分任务，但奖励处理失败。",
       };
     }
   }
-  return {
-    stepId: step.id,
-    stepKind: "sbc",
-    setId: step.setId,
-        completedRuns: totalCompleted,
+
+  const recovery = await runSolveFailureFallback(
+    routine,
+    context,
+    step,
+    firstResult
+  );
+  const recoveryProgress = Number(recovery.completedRuns || 0);
+  if (!recovery.success) {
+    if (recovery.fatal) {
+      return {
+        ...firstResult,
+        completedRuns: firstCompleted,
         rewardPackIds: [],
         rewardPlayerPickIds: [],
-    stopKind: "cancelled",
-    reason: "用户结束了任务。",
+        progressUnits: firstCompleted + recoveryProgress,
+        stopKind: recovery.stopKind || "invalid",
+        reason: recovery.reason || "求解失败补偿执行失败。",
+      };
+    }
+    return {
+      ...firstResult,
+      completedRuns: firstCompleted,
+      rewardPackIds: [],
+      rewardPlayerPickIds: [],
+      progressUnits: firstCompleted + recoveryProgress,
+      reason: recovery.reason
+        ? `${firstResult.reason || "原步骤求解无解"} ${recovery.reason}`
+        : firstResult.reason,
+    };
+  }
+
+  const remaining = requestedRuns === -1
+    ? -1
+    : Math.max(0, Number(requestedRuns || 0) - firstCompleted);
+  if (remaining === 0) {
+    return {
+      ...firstResult,
+      completedRuns: firstCompleted,
+      rewardPackIds: [],
+      rewardPlayerPickIds: [],
+      progressUnits: firstCompleted + recoveryProgress,
+      stopKind: "done",
+      reason: undefined,
+    };
+  }
+
+  reportOperationStatus(
+    "SBC",
+    `求解失败补偿已完成 ${recoveryProgress} 次，正在重试步骤“${firstResult.setName || `SBC ${step.setId}`}”`
+  );
+  const retryResult = await executeRoutineStepWithTotwFallback(
+    routine,
+    step,
+    remaining,
+    context
+  );
+  const totalCompleted = firstCompleted + Number(retryResult.completedRuns || 0);
+  const retryReason = retryResult.stopKind === "no_solution"
+    ? `完成补偿后步骤“${retryResult.setName || firstResult.setName || `SBC ${step.setId}`}”仍无法求解：${retryResult.reason || "当前球员范围内没有可行方案。"}`
+    : retryResult.reason;
+  return {
+    ...retryResult,
+    completedRuns: totalCompleted,
+    progressUnits: totalCompleted + recoveryProgress,
+    ...(retryReason ? { reason: retryReason } : { reason: undefined }),
   };
 };
 
@@ -436,6 +732,7 @@ const runSbcWithTotwFallback = async ({
       runs: requestedRuns,
     }],
     totwFallback: { ...fallback },
+    solveFailureFallback: { enabled: false, setId: 0, runs: 1 },
     storageFallback: fcxStorageOverflowFallbackStore.get(),
   };
   const context = createRoutineContext(routine);

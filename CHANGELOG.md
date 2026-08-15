@@ -4,14 +4,26 @@
 
 ## [Unreleased]
 
+### Security
+
+- 持续审查本地后端访问边界、依赖安全和兼容运行时类型覆盖。
+
+## [26.1.0] - 2026-08-15
+
 ### Added
 
 - 开源项目文档体系和 GitHub 协作模板。
 - 用户脚本与本地后端联合构建、测试和 Release 工作流。
+- 永动机支持在普通求解无解或严格评分窗口无解后执行补偿 SBC，并重试原步骤一次。
 
-### Security
+### Changed
 
-- 持续审查本地后端访问边界、依赖安全和兼容运行时类型覆盖。
+- 更新内置永动机流程目录，跟进当前 SBC 目标、球员挑选和到期时间。
+- 目录版本升级时直接恢复新版内置流程，同时完整保留用户自定义流程。
+
+### Fixed
+
+- 修复整组 SBC 预览被任务遮罩覆盖、无法确认提交的问题。
 
 ## [26.0.9] - 2026-08-13
 
@@ -39,5 +51,6 @@
 
 当前公开源码树从 26.0.9 开始维护统一变更记录。更早版本的详细变化请查看 Git 提交历史和对应发布说明；为避免补写不准确内容，不在此追溯性重构旧版本记录。
 
-[Unreleased]: https://github.com/z3183644/Auto-SBC/compare/v26.0.9...HEAD
-[26.0.9]: https://github.com/z3183644/Auto-SBC/releases/tag/v26.0.9
+[Unreleased]: https://github.com/z3183644/FCX/compare/v26.1.0...HEAD
+[26.1.0]: https://github.com/z3183644/FCX/compare/v26.0.9...v26.1.0
+[26.0.9]: https://github.com/z3183644/FCX/releases/tag/v26.0.9

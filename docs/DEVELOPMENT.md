@@ -439,8 +439,8 @@ git status --short
 
 ```powershell
 git push origin main
-git tag -a v26.0.9 -m "FCX 26.0.9"
-git push origin v26.0.9
+git tag -a v26.1.0 -m "FCX 26.1.0"
+git push origin v26.1.0
 ```
 
 `v*` 标签触发 Release 工作流，重新安装依赖、运行测试、构建 Windows EXE、生成 SHA256 和发布以下文件：

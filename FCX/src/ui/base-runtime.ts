@@ -776,6 +776,16 @@ html.fcx-consent-pending .ut-tab-bar-item.icon-fcx-brand {
   backdrop-filter: blur(8px);
 }
 
+/*
+ * Decision dialogs opened by an active task must sit above FCX's task
+ * shield. The shield remains owned, so the EA page behind the dialog stays
+ * blocked until the user confirms, replans or cancels.
+ */
+.fcx-modal-backdrop--task-interaction {
+  z-index: 2147483200;
+  pointer-events: auto;
+}
+
 .fcx-modal-panel {
   display: flex;
   flex-direction: column;

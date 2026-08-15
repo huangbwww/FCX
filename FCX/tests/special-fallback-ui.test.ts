@@ -41,9 +41,13 @@ describe("special fallback UI wiring", () => {
     expect(runtime).toContain("周黑补给 SBC 不能与当前目标 SBC 相同");
   });
 
-  it("loops normal fallback without changing the routine fallback path", () => {
+  it("loops fallback for normal SBC and every recurring routine shortage", () => {
     const runtime = source("../src/domain/routines/runtime.ts");
     const packs = source("../src/domain/packs/runtime.ts");
+    const routineFallback = runtime.slice(
+      runtime.indexOf("const executeRoutineStepWithTotwFallback"),
+      runtime.indexOf("const runSolveFailureFallback"),
+    );
 
     expect(runtime).toContain("runWithSpecialFallbackLoop({");
     expect(runtime).toContain("deferSummary: true");
@@ -55,8 +59,19 @@ describe("special fallback UI wiring", () => {
     );
     expect(runtime).toContain("outcome.stoppedForNoProgress");
     expect(runtime).toContain("主线进度 ${targetLabel} · 正在执行第 ${cycle} 轮周黑补给");
-    expect(runtime).toContain("let fallbackAttempted = false");
-    expect(runtime).toContain("if (fallbackAttempted || !routine.totwFallback?.enabled)");
+    expect(runtime.match(/runWithSpecialFallbackLoop\(\{/g)).toHaveLength(2);
+    expect(runtime).toContain("[FCX][Routine] TOTW fallback cycle");
+    expect(runtime).toContain("outcome.replenishmentCycles");
+    expect(routineFallback.indexOf("replenish: async")).toBeLessThan(
+      routineFallback.indexOf(
+        "if (Number(routine.totwFallback.setId) === Number(step.setId))",
+      ),
+    );
+    expect(runtime).toMatch(
+      /const runTotwFallback[\s\S]*invalidateInventorySnapshot\("club"\);[\s\S]*invalidateInventorySnapshot\("storage"\);[\s\S]*fetchPlayers\(\{ force: true \}\)/,
+    );
+    expect(runtime).not.toContain("let fallbackAttempted = false");
+    expect(runtime).not.toContain("完成周黑补给后候选池仍不满足目标 SBC 的周黑要求");
     expect(runtime).toContain("且未启用“缺周黑自动补给”");
     expect(runtime).toContain("流程已结束，但有步骤被跳过");
     expect(runtime).toContain("[FCX][Routine] 缺少特殊卡，已跳过步骤");

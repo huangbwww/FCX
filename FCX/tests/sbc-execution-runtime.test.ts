@@ -23,6 +23,14 @@ const packRuntimeSource = readFileSync(
   resolve(root, "src/domain/packs/runtime.ts"),
   "utf8",
 );
+const setPreviewSource = readFileSync(
+  resolve(root, "src/ui/sbc-set-preview-runtime.ts"),
+  "utf8",
+);
+const baseUiSource = readFileSync(
+  resolve(root, "src/ui/base-runtime.ts"),
+  "utf8",
+);
 
 describe("live SBC execution regression coverage", () => {
   it("bypasses the display cache and reads fresh execution entities", () => {
@@ -92,6 +100,23 @@ describe("live SBC execution regression coverage", () => {
     expect(sbcRuntimeSource).not.toContain("pollSolverLogs");
     expect(sbcRuntimeSource).not.toContain("/solver-logs");
     expect(sbcRuntimeSource).not.toContain("numCounter");
+  });
+
+  it("renders the required whole-set decision above the owned task shield", () => {
+    const shieldLayer = Number(
+      baseUiSource.match(/#fcx-task-overlay-root\s*\{[\s\S]*?z-index:\s*(\d+)/)?.[1],
+    );
+    const decisionLayer = Number(
+      baseUiSource.match(
+        /\.fcx-modal-backdrop--task-interaction\s*\{[\s\S]*?z-index:\s*(\d+)/,
+      )?.[1],
+    );
+
+    expect(setPreviewSource).toContain("taskInteraction: true");
+    expect(decisionLayer).toBeGreaterThan(shieldLayer);
+    expect(baseUiSource).toMatch(
+      /\.fcx-modal-backdrop--task-interaction\s*\{[\s\S]*?pointer-events:\s*auto/,
+    );
   });
 
   it("captures reward baselines before submit and processes only new rewards", () => {

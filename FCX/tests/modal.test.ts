@@ -67,4 +67,19 @@ describe("FCX modal", () => {
     modal.close();
     expect(modal.root.isConnected).toBe(false);
   });
+
+  it("marks task decision dialogs for rendering above the task shield", () => {
+    const modal = openFcxModal({
+      id: "task-decision-modal",
+      title: "确认整组提交",
+      content: document.createElement("div"),
+      documentRef: document,
+      dismissible: false,
+      taskInteraction: true,
+    });
+
+    expect(modal.root.classList.contains("fcx-modal-backdrop--task-interaction")).toBe(true);
+    expect(modal.panel.getAttribute("aria-modal")).toBe("true");
+    modal.close();
+  });
 });
