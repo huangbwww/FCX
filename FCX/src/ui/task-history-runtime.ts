@@ -1,12 +1,20 @@
 // @ts-nocheck
 
-const saveTaskHistory = async ({ type, title, summary }) => {
+const saveTaskHistory = async ({
+  type,
+  title,
+  summary,
+  recoveryErrors = [],
+  solveFailureFallbackEvents = [],
+}) => {
   if (!summary) return;
   const hasActivity = Number(summary.packsOpened || 0) > 0
     || Number(summary.picksCompleted || 0) > 0
     || (summary.players || []).length > 0
     || (summary.sbcSubmissions || []).length > 0
-    || Boolean(summary.stoppedReason);
+    || Boolean(summary.stoppedReason)
+    || recoveryErrors.length > 0
+    || solveFailureFallbackEvents.length > 0;
   if (!hasActivity) return;
   try {
     await fcxTaskHistoryStore.add({
@@ -14,6 +22,8 @@ const saveTaskHistory = async ({ type, title, summary }) => {
       type,
       title,
       summary,
+      recoveryErrors,
+      solveFailureFallbackEvents,
     });
   } catch (error) {
     console.warn("[FCX][History] 本地任务历史保存失败", error);

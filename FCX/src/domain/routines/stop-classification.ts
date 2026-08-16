@@ -1,4 +1,4 @@
-import type { RoutineStopKind } from "../../types/routines";
+import type { RoutineStepResult, RoutineStopKind } from "../../types/routines";
 
 export interface RoutineStopClassificationInput {
   reason?: unknown;
@@ -43,6 +43,38 @@ export function isRoutineStepFatal(stopKind: RoutineStopKind): boolean {
     "pack_failed",
     "invalid",
   ].includes(stopKind);
+}
+
+export interface RoutineRecoveryFailure {
+  stopKind: RoutineStopKind;
+  reason?: string;
+  result?: RoutineStepResult;
+}
+
+export function resolveRoutineRecoveryFailure(input: {
+  results: RoutineStepResult[];
+  contextStopKind?: RoutineStopKind;
+  contextStopReason?: string;
+  scheduleStoppedReason?: string;
+}): RoutineRecoveryFailure | undefined {
+  const result = [...input.results].reverse().find((item) => isRoutineStepFatal(item.stopKind));
+  if (result) {
+    return {
+      stopKind: result.stopKind,
+      ...(result.reason ? { reason: result.reason } : {}),
+      result,
+    };
+  }
+  if (
+    input.contextStopKind === "pack_failed"
+    && input.scheduleStoppedReason === "奖励卡包处理失败"
+  ) {
+    return {
+      stopKind: "pack_failed",
+      reason: input.contextStopReason || input.scheduleStoppedReason,
+    };
+  }
+  return undefined;
 }
 
 export function shouldTriggerSolveFailureFallback(

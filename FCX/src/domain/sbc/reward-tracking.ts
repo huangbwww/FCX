@@ -34,7 +34,7 @@ export function isPlayerPickItemLike(value: unknown): boolean {
     // Fall through to stable metadata used by EA player-pick reward items.
   }
   const staticData = asRecord(item._staticData);
-  return Number(item.subtype) === 237
+  return Number(item.subtype ?? item._subtype ?? staticData.subtype) === 237
     || /^PlayerPickItemName/i.test(String(staticData.name || ""));
 }
 
@@ -43,10 +43,18 @@ export function classifySbcRewards(awards: readonly unknown[]): SbcRewardDescrip
   for (const rawAward of awards || []) {
     const award = asRecord(rawAward);
     const item = asRecord(award.item);
-    const id = positiveId(award.value, award.id, award.itemId, item.definitionId, item.id);
+    const staticData = asRecord(item._staticData);
+    const id = positiveId(
+      award.value,
+      award.id,
+      award.itemId,
+      item.definitionId,
+      item._definitionId,
+      staticData.id,
+      item.id,
+    );
     if (!id) continue;
     const count = Math.max(1, Math.trunc(Number(award.count) || 1));
-    const staticData = asRecord(item._staticData);
     const label = String(
       staticData.description
       || award.displayName
@@ -54,9 +62,13 @@ export function classifySbcRewards(awards: readonly unknown[]): SbcRewardDescrip
       || `奖励 ${id}`,
     );
     const type = String(award.type || "").toLowerCase();
+    const playerPick = award.isPlayerPick === true
+      || type === "player_pick"
+      || type === "playerpick"
+      || isPlayerPickItemLike(item);
     if (award.isPack === true || type === "pack") {
       rewards.push({ kind: "pack", id, count, label });
-    } else if (award.isItem === true && isPlayerPickItemLike(item)) {
+    } else if (playerPick) {
       rewards.push({ kind: "player_pick", id, count, label });
     } else {
       rewards.push({ kind: "unsupported", id, count, label });
@@ -84,7 +96,13 @@ export function countPackInventory(
 
 export function playerPickDefinitionId(item: unknown): number {
   const record = asRecord(item);
-  return positiveId(record.definitionId, record.id);
+  const staticData = asRecord(record._staticData);
+  return positiveId(
+    record.definitionId,
+    record._definitionId,
+    staticData.id,
+    record.id,
+  );
 }
 
 export function playerPickInstanceKey(item: unknown): string {

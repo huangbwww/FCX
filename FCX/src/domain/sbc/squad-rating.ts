@@ -3,6 +3,7 @@ import type {
   SbcConstraint,
   SolverPlayerResult,
 } from "../../types/backend";
+import { normalizeSquadRatingOvershoot } from "../../config/fcx-sbc-recommendations";
 
 export const STRICT_SQUAD_RATING_OVERSHOOT = 0.8;
 
@@ -52,6 +53,7 @@ export function calculateEaSquadRating(
 
 export function resolveStrictSquadRatingWindow(
   constraints: readonly SbcConstraint[],
+  overshoot: number = STRICT_SQUAD_RATING_OVERSHOOT,
 ): StrictSquadRatingWindow | null {
   const targets = constraints
     .filter(
@@ -64,9 +66,10 @@ export function resolveStrictSquadRatingWindow(
   if (!targets.length) return null;
 
   const minimum = Math.max(...targets);
+  const normalizedOvershoot = normalizeSquadRatingOvershoot(overshoot);
   return {
     minimum,
-    maximum: Math.round((minimum + STRICT_SQUAD_RATING_OVERSHOOT) * 100) / 100,
+    maximum: Math.round((minimum + normalizedOvershoot) * 100) / 100,
   };
 }
 
@@ -84,8 +87,9 @@ export function isSquadRatingInWindow(
 export function validateSolverSquadRating(
   players: readonly Pick<SolverPlayerResult, "rating">[],
   constraints: readonly SbcConstraint[],
+  overshoot: number = STRICT_SQUAD_RATING_OVERSHOOT,
 ): SquadRatingValidation {
-  const window = resolveStrictSquadRatingWindow(constraints);
+  const window = resolveStrictSquadRatingWindow(constraints, overshoot);
   if (!window) return { ok: true, rating: null, window: null };
 
   const rating = calculateEaSquadRating(players.map((player) => Number(player.rating)));

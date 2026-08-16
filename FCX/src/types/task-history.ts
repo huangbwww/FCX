@@ -1,4 +1,8 @@
 import type { PackTaskSummary } from "./packs";
+import type {
+  RoutineRecoveryErrorEvent,
+  RoutineSolveFailureFallbackEvent,
+} from "./routines";
 
 export type FcxTaskHistoryType = "sbc" | "set" | "routine" | "pack";
 
@@ -11,4 +15,6 @@ export interface FcxTaskHistoryRecord {
   status: "completed" | "stopped" | "failed";
   reason?: string;
   summary: PackTaskSummary;
+  recoveryErrors?: RoutineRecoveryErrorEvent[];
+  solveFailureFallbackEvents?: RoutineSolveFailureFallbackEvent[];
 }

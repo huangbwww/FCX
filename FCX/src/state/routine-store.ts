@@ -9,6 +9,7 @@ import type {
   RoutinePackStep,
   RoutineSbcStep,
   RoutineStep,
+  RoutineFatalRecoveryMode,
 } from "../types/routines";
 import { normalizeStorageOverflowFallback } from "./storage-overflow-fallback-store";
 import type { StorageAdapter } from "./settings-store";
@@ -20,8 +21,16 @@ function clone<T>(value: T): T {
 }
 
 function createDocument(): RoutineDocument {
-  return { version: 5, builtinOverrides: {}, custom: {} };
+  return { version: 8, builtinOverrides: {}, custom: {} };
 }
+
+const normalizeFatalRecoveryMode = (value: unknown): RoutineFatalRecoveryMode =>
+  value === "stop" || value === "resume" ? value : "restart";
+
+export const normalizeFatalRecoveryMaxReloads = (value: unknown): number => {
+  const parsed = Math.trunc(Number(value));
+  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 100 ? parsed : 3;
+};
 
 export function normalizeRoutineRunCount(value: unknown, fallback = 1): number {
   const parsed = Math.trunc(Number(value));
@@ -117,6 +126,11 @@ export function normalizeRoutine(
       runs: normalizeRoutineRunCount(rawSolveFailureFallback.runs, 1),
     },
     storageFallback: normalizeStorageOverflowFallback(record.storageFallback),
+    fatalRecoveryEnabled: record.fatalRecoveryEnabled === true,
+    fatalRecoveryMode: normalizeFatalRecoveryMode(record.fatalRecoveryMode),
+    fatalRecoveryMaxReloads: normalizeFatalRecoveryMaxReloads(
+      record.fatalRecoveryMaxReloads,
+    ),
     ...(origin === "builtin"
       ? { builtinSnapshotVersion: Math.max(0, Math.trunc(Number(record.builtinSnapshotVersion) || 0)) }
       : {}),
@@ -178,6 +192,9 @@ export class RoutineStore {
       totwFallback: { enabled: true, setId: 1017, runs: 1 },
       solveFailureFallback: { enabled: false, setId: 0, runs: 1 },
       storageFallback: { enabled: false, setId: 0, runs: 1 },
+      fatalRecoveryEnabled: false,
+      fatalRecoveryMode: "restart",
+      fatalRecoveryMaxReloads: 3,
     };
   }
 
@@ -259,7 +276,7 @@ export class RoutineStore {
       const normalizedBuiltinOverrides = JSON.stringify(document.builtinOverrides);
       const normalizedCustom = JSON.stringify(document.custom);
       if (
-        parsed.version !== 5
+        parsed.version !== 8
         || removedStaleBuiltinOverrides.length > 0
         || normalizedBuiltinOverrides !== JSON.stringify(parsed.builtinOverrides || {})
         || normalizedCustom !== JSON.stringify(parsed.custom || {})

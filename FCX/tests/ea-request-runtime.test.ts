@@ -11,6 +11,7 @@ describe("EA request retry runtime integration", () => {
     expect(vite).toContain("const executeFcxEaRequest");
     expect(vite).toContain('getValue(0, 0, "eaRequestMaxAttempts")');
     expect(vite).toContain('getValue(0, 0, "eaRequestRetryDelaySeconds")');
+    expect(vite).toContain('getValue(0, 0, "eaSbcRequestIntervalMs")');
     expect(vite).toContain("new EaRequestGate(900, [3000, 8000, 20000])");
     expect(vite).toContain("retryUnauthorized: options.retryUnauthorized ?? isSbcRequest");
     expect(vite).toContain("retryThrottle: options.retryThrottle ?? isSbcRequest");
@@ -23,6 +24,7 @@ describe("EA request retry runtime integration", () => {
     expect(settings).toContain('createSettingsTile(cards, "EA请求重试"');
     expect(settings).toMatch(/"eaRequestMaxAttempts",\s*1,\s*10,/);
     expect(settings).toMatch(/"eaRequestRetryDelaySeconds",\s*1,\s*30,/);
+    expect(settings).toMatch(/"eaSbcRequestIntervalMs",\s*0,\s*10000,/);
   });
 
   it("uses targeted recovery for stale chemistry and blocked pack opening", () => {
@@ -35,6 +37,22 @@ describe("EA request retry runtime integration", () => {
     expect(packs).toContain("processPackItems(options, taskSummary");
     expect(packs).toContain("allowPlayerPicks");
     expect(sbc).toContain("resetThrottleOnSuccess: false");
+    expect(sbc).toContain("retryStatuses: [401, 403]");
+    expect(sbc).toContain("retryDelayScheduleMs: [1000, 2000, 4000]");
+  });
+
+  it("does not replay or infer ambiguous pack writes", () => {
+    const packs = read("src/domain/packs/runtime.ts");
+    expect(packs).toContain("PACK_OPEN_SUCCESS_INTERVAL_MS = 800");
+    expect(packs).toContain("maxAttempts: 1");
+    expect(packs).toContain("retryThrottle: false");
+    expect(packs).toContain("retryUnauthorized: false");
+    expect(packs).toContain("为避免重复开包，本次未自动重试");
+    expect(packs).not.toContain("PackOpenJournal");
+    expect(packs).not.toContain("PACK_WRITE_PROBE_DELAYS_MS");
+    expect(packs).not.toContain("verifyOpenedPack");
+    expect(packs).not.toContain("consumeReconciledPackWorks");
+    expect(packs).not.toContain("开包结果经过多次核验仍无法确认");
   });
 
   it("routes high-frequency EA reads through the shared executor", () => {
@@ -69,12 +87,11 @@ describe("EA request retry runtime integration", () => {
     for (const operation of [
       "提交SBC",
       "保存SBC阵容",
-      "打开卡包",
       "确认球员挑选",
       "购买转会市场球员",
     ]) {
       expect(sources).toContain(operation);
     }
-    expect(sources.match(/verifyAfterFailure/g)?.length).toBeGreaterThanOrEqual(8);
+    expect(sources.match(/verifyAfterFailure/g)?.length).toBeGreaterThanOrEqual(6);
   });
 });

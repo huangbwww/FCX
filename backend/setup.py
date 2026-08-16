@@ -287,6 +287,10 @@ def runAutoSBC(sbc, players, maxSolveTime):
         rating_window = optimize.squad_rating_window(
             target_rating,
             11 - len(sbc["brickIndices"]),
+            max_overshoot=sbc.get(
+                "ratingOvershoot",
+                optimize.SQUAD_RATING_MAX_OVERSHOOT,
+            ),
         )
     results = []
     # if status != 2 and status != 4:

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   requiresMinimumRatingFirst,
+  supportsConfigurableRatingWindow,
   supportsMinimumRatingFirst,
 } from "../src/domain/sbc/backend-features";
 
@@ -19,6 +20,20 @@ describe("minimum-rating-first backend capability", () => {
         { requirementKey: "TEAM_RATING", scope: "EXACT" },
       ]),
     ).toBe(true);
+  });
+
+  it("detects configurable rating-window support independently", () => {
+    expect(
+      supportsConfigurableRatingWindow({
+        solver_features: { configurable_rating_window: 1 },
+      }),
+    ).toBe(true);
+    expect(
+      supportsConfigurableRatingWindow({
+        solver_features: { configurable_rating_window: 0 },
+      }),
+    ).toBe(false);
+    expect(supportsConfigurableRatingWindow({ status: "ok" })).toBe(false);
   });
 
   it("does not require the capability for maximum-only or unrelated rules", () => {

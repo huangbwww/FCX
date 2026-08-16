@@ -286,6 +286,8 @@ function parseRoutine(
       "totwFallback",
       "solveFailureFallback",
       "storageFallback",
+      "fatalRecoveryEnabled",
+      "fatalRecoveryMode",
     ],
     [
       "id",
@@ -332,6 +334,14 @@ function parseRoutine(
           true,
         ),
     storageFallback: parseFallback(input.storageFallback, `${path}.storageFallback`, true),
+    // Remote catalogs may describe recovery behavior, but only a local user
+    // action may enable automatic page refreshes.
+    fatalRecoveryEnabled: false,
+    fatalRecoveryMode:
+      input.fatalRecoveryMode === "stop" || input.fatalRecoveryMode === "resume"
+        ? input.fatalRecoveryMode
+        : "restart",
+    fatalRecoveryMaxReloads: 3,
     builtinSnapshotVersion: catalogVersion,
   };
 }

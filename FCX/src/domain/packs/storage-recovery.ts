@@ -3,6 +3,7 @@ import type { PackSelection } from "../../types/packs";
 export interface PackWorkItem {
   id: number;
   tradable: boolean;
+  owned?: boolean;
   rewardPlan?: unknown;
 }
 
@@ -22,6 +23,7 @@ export function expandPackSelections(
       () => ({
         id: Number(selection.id),
         tradable: Boolean(selection.tradable),
+        owned: selection.owned !== false,
         rewardPlan: selection.rewardPlan || rewardPlan,
       }),
     ),
@@ -46,13 +48,6 @@ export function storageProgressMade(
   return after.count < before.count || after.available > before.available;
 }
 
-export function nextStorageRecoveryRound(
-  completed: number,
-  maximum = 10,
-): { allowed: boolean; next: number } {
-  const normalized = Math.max(0, Math.trunc(Number(completed) || 0));
-  const limit = Math.max(1, Math.trunc(Number(maximum) || 10));
-  return normalized >= limit
-    ? { allowed: false, next: normalized }
-    : { allowed: true, next: normalized + 1 };
+export function incrementStorageRecoveryCount(completed: number): number {
+  return Math.max(0, Math.trunc(Number(completed) || 0)) + 1;
 }

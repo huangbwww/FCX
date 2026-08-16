@@ -581,6 +581,16 @@ sbcSettingsView.prototype._generate = function _generate() {
     (spinner) => saveSettings(0, 0, "eaRequestRetryDelaySeconds", spinner.getValue()),
     "普通请求失败时使用该间隔；SBC限流按3秒、8秒、20秒逐级冷却。首次成功不会等待。"
   );
+  createNumberSpinner(
+    eaRetryTile,
+    "API请求节奏（毫秒）",
+    "eaSbcRequestIntervalMs",
+    0,
+    10000,
+    Number(getSettings(0, 0, "eaSbcRequestIntervalMs") ?? 900),
+    (spinner) => saveSettings(0, 0, "eaSbcRequestIntervalMs", spinner.getValue()),
+    "控制FCX发起的SBC读取、保存和提交请求之间的最小间隔；默认900毫秒。设置为0会关闭主动节奏控制，更容易触发EA限流。"
+  );
 
   const remoteTile = createSettingsTile(
     cards,
@@ -827,6 +837,17 @@ const createPlayerProtectionPanel = (parent, session) => {
     },
     "排除当前激活阵容中的球员；每个任务和每次提交前都会重新校验。"
   );
+  createToggle(
+    parent,
+    "锁定同时保护SBC仓库同卡型",
+    "protectLockedStorageCopies",
+    session.protectionDraft?.protectLockedStorageCopies !== false,
+    (toggle) => {
+      session.protectionDraft.protectLockedStorageCopies = toggle.getToggleState();
+      markSettingsDraftDirty(session);
+    },
+    "开启后，手动锁定球员时也会排除SBC仓库内同一卡型；关闭后只保留原俱乐部锁定保护。"
+  );
   hideSettingsControl(createToggle(
     parent,
     "收集概念球员数据",
@@ -942,7 +963,8 @@ const createLockedPlayersPanel = (parent, session) => {
         const clubPlayers = await clubPromise;
         const grouped = new Map();
         for (const player of clubPlayers) {
-          const key = Number(player.definitionId);
+          const key = readPlayerDefinitionId(player);
+          if (key <= 0) continue;
           const previous = grouped.get(key);
           if (!previous || Number(player.rating) > Number(previous.rating)) {
             grouped.set(key, player);
@@ -1397,6 +1419,7 @@ const createSBCCustomRulesPanel = async (
               for (const key of [
                 "ratingRange",
                 "priceRange",
+                "squadRatingOvershoot",
                 "commonOnly",
                 "allowExtraRequiredRarityGroupPlayers",
               ]) {

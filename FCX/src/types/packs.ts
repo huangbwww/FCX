@@ -11,6 +11,7 @@ export interface PackSelection {
   id: number;
   tradable: boolean;
   quantity: number;
+  owned?: boolean;
 }
 
 export interface PackRunOptions {

@@ -1,4 +1,5 @@
 import type { EaPlayer } from "../../types/game";
+import { readPlayerDefinitionId } from "./player-identity";
 import type {
   PlayerProtectionSnapshot,
   PlayerProtectionViolation,
@@ -187,10 +188,17 @@ export function filterProtectedPlayers(
     activeSquadItemIds: ReadonlySet<number>;
     protectEvolutions: boolean;
     protectActiveSquad: boolean;
+    protectLockedStorageCopies: boolean;
+    storageItemIds?: ReadonlySet<number>;
   },
 ): EaPlayer[] {
   return players.filter((player) => {
-    if (options.lockedDefinitionIds.has(Number(player.definitionId))) return false;
+    const isStorageCopy = Boolean(player.isStorage)
+      || options.storageItemIds?.has(Number(player.id));
+    if (
+      options.lockedDefinitionIds.has(readPlayerDefinitionId(player))
+      && (!isStorageCopy || options.protectLockedStorageCopies)
+    ) return false;
     if (
       options.protectActiveSquad &&
       options.activeSquadItemIds.has(Number(player.id))
@@ -206,7 +214,12 @@ export function protectedPlayerReasons(
   snapshot: PlayerProtectionSnapshot,
 ): PlayerProtectionViolationReason[] {
   const reasons: PlayerProtectionViolationReason[] = [];
-  if (snapshot.lockedDefinitionIds.has(Number(player.definitionId))) {
+  const isStorageCopy = Boolean(player.isStorage)
+    || snapshot.storageItemIds.has(Number(player.id));
+  if (
+    snapshot.lockedDefinitionIds.has(readPlayerDefinitionId(player))
+    && (!isStorageCopy || snapshot.protectLockedStorageCopies)
+  ) {
     reasons.push("manualLock");
   }
   if (

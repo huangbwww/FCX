@@ -7,8 +7,8 @@ import {
 } from "../src/state/storage-overflow-fallback-store";
 import {
   expandPackSelections,
+  incrementStorageRecoveryCount,
   insertImmediatePackSelections,
-  nextStorageRecoveryRound,
   storageProgressMade,
 } from "../src/domain/packs/storage-recovery";
 
@@ -66,7 +66,10 @@ describe("storage overflow fallback", () => {
       "utf8",
     );
     expect(packRuntime).toContain('routing.stopCode === "storage_full"');
-    expect(packRuntime).toContain("MAX_STORAGE_RECOVERY_ROUNDS = 10");
+    expect(packRuntime).not.toContain("MAX_STORAGE_RECOVERY_ROUNDS");
+    expect(packRuntime).not.toContain("自动清仓上限");
+    expect(packRuntime).toContain('while (currentRouting?.stopCode === "storage_full")');
+    expect(packRuntime).toContain("正在继续清仓");
     expect(packRuntime).toContain("requestedRuns: cleanupRuns");
     expect(packRuntime).toContain(
       "if (cleanupRuns !== -1 && cleanupRuns <= 0)",
@@ -109,7 +112,7 @@ describe("storage overflow fallback", () => {
     expect(queue[1]?.rewardPlan).toEqual({ kind: "cleanup" });
   });
 
-  it("requires real storage progress and stops after ten recovery rounds", () => {
+  it("requires real storage progress without imposing a fixed recovery limit", () => {
     expect(storageProgressMade(
       { count: 100, capacity: 100, available: 0 },
       { count: 99, capacity: 100, available: 1 },
@@ -118,8 +121,21 @@ describe("storage overflow fallback", () => {
       { count: 100, capacity: 100, available: 0 },
       { count: 100, capacity: 100, available: 0 },
     )).toBe(false);
-    expect(nextStorageRecoveryRound(9)).toEqual({ allowed: true, next: 10 });
-    expect(nextStorageRecoveryRound(10)).toEqual({ allowed: false, next: 10 });
+    expect(incrementStorageRecoveryCount(9)).toBe(10);
+    expect(incrementStorageRecoveryCount(10)).toBe(11);
+    expect(incrementStorageRecoveryCount(1000)).toBe(1001);
+  });
+
+  it("uses exact millisecond waits for set confirmation and cleanup rewards", () => {
+    const root = resolve(import.meta.dirname, "..");
+    const sbcRuntime = readFileSync(
+      resolve(root, "src/domain/sbc/runtime.ts"),
+      "utf8",
+    );
+    expect(sbcRuntime).toContain("await waitExactMs(900)");
+    expect(sbcRuntime).toContain("await waitExactMs(1500)");
+    expect(sbcRuntime).not.toContain("await wait(900)");
+    expect(sbcRuntime).not.toContain("await wait(1500)");
   });
 
   it("exposes one group save action and both cleanup configuration surfaces", () => {

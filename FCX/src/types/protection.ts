@@ -1,12 +1,14 @@
 export interface PlayerProtectionSettings {
   protectEvolutions: boolean;
   protectActiveSquad: boolean;
+  protectLockedStorageCopies: boolean;
 }
 
 export interface PlayerProtectionSnapshot extends PlayerProtectionSettings {
   personaId: string;
   lockedDefinitionIds: ReadonlySet<number>;
   activeSquadItemIds: ReadonlySet<number>;
+  storageItemIds: ReadonlySet<number>;
 }
 
 export type PlayerProtectionViolationReason =

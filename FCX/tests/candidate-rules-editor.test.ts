@@ -13,11 +13,13 @@ describe("candidate rules editor", () => {
       value: {
         ratingRange: [0, 82],
         priceRange: [null, 3000],
+        squadRatingOvershoot: 0.8,
         commonOnly: true,
         allowExtraRequiredRarityGroupPlayers: false,
         sources: {
           ratingRange: "recommended",
           priceRange: "recommended",
+          squadRatingOvershoot: "global",
           commonOnly: "recommended",
           allowExtraRequiredRarityGroupPlayers: "global",
         },
@@ -28,9 +30,13 @@ describe("candidate rules editor", () => {
     expect(editor.element.textContent).not.toContain("来源：");
     expect(editor.element.querySelector(".fcx-candidate-rules__source")).toBeNull();
     expect(
-      [...editor.element.querySelectorAll<HTMLInputElement>('input[type="number"]')]
+      [...editor.element.querySelectorAll<HTMLInputElement>('.fcx-candidate-rules__range input')]
         .every((input) => input.inputMode === "numeric"),
     ).toBe(true);
+    expect(
+      editor.element.querySelector<HTMLInputElement>('.fcx-candidate-rules__number input')
+        ?.inputMode,
+    ).toBe("decimal");
   });
 
   it("captures numeric edits on input before a save button is clicked", () => {
@@ -38,11 +44,13 @@ describe("candidate rules editor", () => {
       value: {
         ratingRange: [65, 93],
         priceRange: [null, null],
+        squadRatingOvershoot: 0.8,
         commonOnly: false,
         allowExtraRequiredRarityGroupPlayers: false,
         sources: {
           ratingRange: "global",
           priceRange: "global",
+          squadRatingOvershoot: "global",
           commonOnly: "global",
           allowExtraRequiredRarityGroupPlayers: "global",
         },
@@ -65,6 +73,14 @@ describe("candidate rules editor", () => {
     priceMaximum.dispatchEvent(new Event("input", { bubbles: true }));
     expect(editor.getValue().priceRange).toEqual([null, 5000]);
     expect(editor.changedKeys()).toContain("priceRange");
+
+    const overshoot = editor.element.querySelector<HTMLInputElement>(
+      '.fcx-candidate-rules__number input',
+    )!;
+    overshoot.value = "2.04";
+    overshoot.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(editor.getValue().squadRatingOvershoot).toBe(2);
+    expect(editor.changedKeys()).toContain("squadRatingOvershoot");
   });
 
   it("reads the live numeric field value even when the browser has not emitted change", () => {
@@ -72,11 +88,13 @@ describe("candidate rules editor", () => {
       value: {
         ratingRange: [65, 93],
         priceRange: [null, null],
+        squadRatingOvershoot: 0.8,
         commonOnly: false,
         allowExtraRequiredRarityGroupPlayers: false,
         sources: {
           ratingRange: "global",
           priceRange: "global",
+          squadRatingOvershoot: "global",
           commonOnly: "global",
           allowExtraRequiredRarityGroupPlayers: "global",
         },

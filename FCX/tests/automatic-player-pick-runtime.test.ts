@@ -24,6 +24,9 @@ describe("FCX automatic player-pick runtime", () => {
     expect(block.indexOf("requestPendingPlayerPick()")).toBeLessThan(
       block.indexOf("for (; !stopped"),
     );
+    expect(block.indexOf("if (!options.autoPick)")).toBeLessThan(
+      block.indexOf("confirmAutomaticPlayerPick({"),
+    );
     expect(block).toContain("attempt <= PLAYER_PICK_MAX_ATTEMPTS");
     expect(block).toContain("PLAYER_PICK_REWARD_ATTEMPTS");
     expect(block).toContain("PLAYER_PICK_REWARD_WAIT_MS");

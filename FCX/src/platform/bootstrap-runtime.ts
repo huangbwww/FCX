@@ -131,6 +131,7 @@ const init = () => {
     futHomeOverride();
     showFcxLoadedBadge();
     void fcxRemoteControl.start();
+    void resumePendingRoutineRecovery();
   } else {
     setTimeout(init, 4000);
     console.log(

@@ -5,6 +5,7 @@ import type {
   ProtectedPlayerViewRecord,
 } from "../../types/protection";
 import { isEvolutionPlayer } from "./player-protection";
+import { readPlayerDefinitionId } from "./player-identity";
 
 export interface ProtectedPlayerAggregationOptions {
   clubPlayers: readonly EaPlayer[];
@@ -35,7 +36,7 @@ export function aggregateProtectedPlayers(
   );
 
   for (const player of options.clubPlayers) {
-    const definitionId = Number(player.definitionId);
+    const definitionId = readPlayerDefinitionId(player);
     if (!Number.isFinite(definitionId) || definitionId <= 0) continue;
     const manualLock = lockedByDefinition.has(definitionId);
     const activeSquad =

@@ -1,6 +1,7 @@
 import type { SbcConstraint } from "../../types/backend";
 
 export const MINIMUM_RATING_FIRST_CAPABILITY = 2;
+export const CONFIGURABLE_RATING_WINDOW_CAPABILITY = 1;
 
 export function requiresMinimumRatingFirst(
   constraints: readonly Pick<SbcConstraint, "requirementKey" | "scope">[],
@@ -20,5 +21,16 @@ export function supportsMinimumRatingFirst(health: unknown): boolean {
     Number(
       (solverFeatures as Record<string, unknown>).minimum_rating_first,
     ) >= MINIMUM_RATING_FIRST_CAPABILITY
+  );
+}
+
+export function supportsConfigurableRatingWindow(health: unknown): boolean {
+  if (!health || typeof health !== "object") return false;
+  const solverFeatures = (health as Record<string, unknown>).solver_features;
+  if (!solverFeatures || typeof solverFeatures !== "object") return false;
+  return (
+    Number(
+      (solverFeatures as Record<string, unknown>).configurable_rating_window,
+    ) >= CONFIGURABLE_RATING_WINDOW_CAPABILITY
   );
 }

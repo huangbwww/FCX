@@ -48,12 +48,17 @@ let goToUnassignedView = async () => {
     hideLoader();
   }
 };
-let getPacks = async () => {
+let getPacks = async (requestOptions = {}) => {
   repositories.Store.setDirty();
   const response = await executeFcxEaRequest(
     () => services.Store.getPacks("ALL", true, true),
-    "读取卡包列表",
-    { scope: "Pack" }
+    requestOptions.label || "读取卡包列表",
+    {
+      scope: "Pack",
+      maxAttempts: requestOptions.maxAttempts,
+      timeoutMs: requestOptions.timeoutMs,
+      ignoreCancellation: requestOptions.ignoreCancellation,
+    }
   );
   return response?.response ?? response?.data ?? response;
 };
@@ -118,6 +123,9 @@ let sbcSubmit = async function (challenge, sbcSet, i) {
       label,
       {
         scope: "SBC",
+        maxAttempts: 4,
+        retryDelayScheduleMs: [1000, 2000, 4000],
+        retryStatuses: [401, 403],
         verifyAfterFailure: async () => {
           try {
             const fresh = await readFreshSbcExecutionState(Number(sbcSet?.id), {
@@ -199,6 +207,7 @@ const sbcViewOverride = () => {
           for (const key of [
             "ratingRange",
             "priceRange",
+            "squadRatingOvershoot",
             "commonOnly",
             "allowExtraRequiredRarityGroupPlayers",
           ]) {

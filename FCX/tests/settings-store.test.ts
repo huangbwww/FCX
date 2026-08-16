@@ -25,8 +25,10 @@ describe("SettingsStore", () => {
   it("uses safe defaults for automatic pack processing", () => {
     expect(defaultSolverSettings.animateWalkouts).toBe(98);
     expect(defaultSolverSettings.maxSolveTime).toBe(10);
+    expect(defaultSolverSettings.squadRatingOvershoot).toBe(0.8);
     expect(defaultSolverSettings.eaRequestMaxAttempts).toBe(3);
     expect(defaultSolverSettings.eaRequestRetryDelaySeconds).toBe(3);
+    expect(defaultSolverSettings.eaSbcRequestIntervalMs).toBe(900);
     expect(defaultSolverSettings.autoSubmit).toBe(1);
     expect(defaultSolverSettings.showPrices).toBe(true);
     expect(defaultSolverSettings.showSbcTab).toBe(true);

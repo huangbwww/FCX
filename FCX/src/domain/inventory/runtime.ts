@@ -496,14 +496,26 @@ const getAvailablePileSlots = (pileName) => {
 const moveItemsAndWait = async (items, pile, label) => {
   if (!items.length) return;
   const itemIds = items.map((item) => Number(item?.id)).filter(Number.isFinite);
-  await executeFcxEaRequest(
-    () => services.Item.move(items, pile),
-    label,
-    {
-      scope: "Pack",
-      verifyAfterFailure: () => verifyItemsLeftUnassigned(itemIds),
-    }
-  );
+  try {
+    await executeFcxEaRequest(
+      () => services.Item.move(items, pile),
+      label,
+      {
+        scope: "Pack",
+        verifyAfterFailure: () => verifyItemsLeftUnassigned(itemIds),
+      }
+    );
+  } catch (error) {
+    const verification = await verifyItemsLeftUnassigned(itemIds);
+    console.warn("[FCX][Inventory] moveToPile failed; checked actual unassigned state", {
+      label,
+      pile: Number(pile),
+      itemCount: itemIds.length,
+      verification,
+      error,
+    });
+    if (verification.state !== "applied") throw error;
+  }
   syncMovedItemsToInventorySnapshot(items, pile);
 };
 
@@ -543,8 +555,14 @@ const verifyItemsLeftUnassigned = async (itemIds) => {
       "核验未分配物品状态",
       { scope: "Pack", ignoreCancellation: true }
     );
+    const currentItems = response?.response?.items
+      || response?.data?.items
+      || response?.items;
+    if (!Array.isArray(currentItems)) {
+      return { state: "unknown", reason: "EA未返回可核验的未分配物品列表" };
+    }
     const currentIds = new Set(
-      (response?.response?.items || []).map((item) => Number(item?.id))
+      currentItems.map((item) => Number(item?.id))
     );
     const remaining = itemIds.filter((id) => currentIds.has(id)).length;
     if (remaining === 0) return { state: "applied", value: { success: true, status: 200 } };
@@ -598,19 +616,19 @@ const routeUnassignedItems = async (options, taskSummary = undefined) => {
 
     if (taskSummary) {
       for (const item of plan.club) {
-        setPlayerDestination(taskSummary, Number(item.id), "club", Number(item.definitionId));
+        setPlayerDestination(taskSummary, Number(item.id), "club", readPlayerDefinitionId(item));
       }
       for (const item of plan.storage) {
-        setPlayerDestination(taskSummary, Number(item.id), "storage", Number(item.definitionId));
+        setPlayerDestination(taskSummary, Number(item.id), "storage", readPlayerDefinitionId(item));
       }
       for (const item of plan.transferList) {
-        setPlayerDestination(taskSummary, Number(item.id), "transfer", Number(item.definitionId));
+        setPlayerDestination(taskSummary, Number(item.id), "transfer", readPlayerDefinitionId(item));
       }
       for (const item of plan.discard) {
-        setPlayerDestination(taskSummary, Number(item.id), "sold", Number(item.definitionId));
+        setPlayerDestination(taskSummary, Number(item.id), "sold", readPlayerDefinitionId(item));
       }
       for (const item of plan.blocked) {
-        setPlayerDestination(taskSummary, Number(item.id), "remaining", Number(item.definitionId));
+        setPlayerDestination(taskSummary, Number(item.id), "remaining", readPlayerDefinitionId(item));
       }
     }
 
@@ -795,10 +813,10 @@ const getPlayerName = (item) =>
   item?._staticData?.name ||
   item?._staticData?.lastName ||
   item?.name ||
-  `球员 ${item?.definitionId || ""}`;
+  `球员 ${readPlayerDefinitionId(item) || ""}`;
 
 const createLockedPlayerRecord = (item) => ({
-  definitionId: Number(item.definitionId),
+  definitionId: readPlayerDefinitionId(item),
   name: getPlayerName(item),
   rating: Number(item.rating || item?._staticData?.rating || 0),
   rarity: services.Localization?.localize?.("item.raretype" + item.rareflag) ||
@@ -809,14 +827,14 @@ const createLockedPlayerRecord = (item) => ({
 const initializePlayerProtection = () => getPlayerProtectionStore();
 
 let isItemLocked = function (item) {
-  return getPlayerProtectionStore().has(item?.definitionId);
+  return getPlayerProtectionStore().has(readPlayerDefinitionId(item));
 };
 let lockItem = function (item) {
-  if (!item?.definitionId) return;
+  if (!readPlayerDefinitionId(item)) return;
   getPlayerProtectionStore().lock(createLockedPlayerRecord(item));
 };
 let unlockItem = function (item) {
-  getPlayerProtectionStore().unlock(item?.definitionId);
+  getPlayerProtectionStore().unlock(readPlayerDefinitionId(item));
 };
 let getLockedItems = function () {
   return getPlayerProtectionStore().ids();
@@ -984,19 +1002,27 @@ const capturePlayerProtectionSnapshot = async () => {
   const activeSquadItemIds = settings.protectActiveSquad
     ? await getActiveSquadProtectedIds({ required: true })
     : new Set();
+  const storageItemIds = settings.protectLockedStorageCopies === false
+    ? new Set((await getStoragePlayers()).map((player) => Number(player.id)).filter((id) => id > 0))
+    : new Set();
   const snapshot = {
     personaId,
     lockedDefinitionIds: new Set(store.ids().map(Number)),
     activeSquadItemIds,
+    storageItemIds,
     protectEvolutions: settings.protectEvolutions !== false,
     protectActiveSquad: settings.protectActiveSquad !== false,
+    protectLockedStorageCopies:
+      settings.protectLockedStorageCopies !== false,
   };
   console.info("[FCX][Protection] 保护快照已建立", {
     personaId,
     lockedDefinitions: snapshot.lockedDefinitionIds.size,
     activeSquadItems: snapshot.activeSquadItemIds.size,
+    storageItems: snapshot.storageItemIds.size,
     protectEvolutions: snapshot.protectEvolutions,
     protectActiveSquad: snapshot.protectActiveSquad,
+    protectLockedStorageCopies: snapshot.protectLockedStorageCopies,
   });
   return snapshot;
 };
@@ -1022,7 +1048,7 @@ const assertPlayerProtection = async (players, stage) => {
     count: violations.length,
     players: violations.map(({ player, reasons }) => ({
       id: Number(player.id),
-      definitionId: Number(player.definitionId),
+      definitionId: readPlayerDefinitionId(player),
       reasons,
     })),
   });

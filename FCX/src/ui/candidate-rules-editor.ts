@@ -142,8 +142,64 @@ export function createCandidateRulesEditor(options: CandidateRulesEditorOptions)
     grid.appendChild(row);
   };
 
+  const numericValue = (
+    label: string,
+    key: "squadRatingOvershoot",
+    min: number,
+    max: number,
+    step: number,
+    help: string,
+  ) => {
+    const row = documentRef.createElement("label");
+    row.className = "fcx-candidate-rules__field fcx-candidate-rules__number";
+    const copy = documentRef.createElement("span");
+    const title = documentRef.createElement("span");
+    title.textContent = label;
+    const detail = documentRef.createElement("small");
+    detail.textContent = help;
+    copy.append(title, detail);
+    const input = documentRef.createElement("input");
+    input.type = "number";
+    input.inputMode = "decimal";
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    const render = () => {
+      input.value = Number(current[key]).toFixed(1);
+    };
+    renderers.push(render);
+    const update = (shouldRender = true) => {
+      const parsed = Number(input.value);
+      const previous = Number(current[key]);
+      const next = Number.isFinite(parsed)
+        ? Math.round(Math.min(max, Math.max(min, parsed)) * 10) / 10
+        : previous;
+      if (next !== previous) {
+        current[key] = next;
+        changed.add(key);
+        restored = false;
+        options.onChange?.(key, next);
+      }
+      if (shouldRender) render();
+    };
+    synchronizers.push(() => update(false));
+    input.addEventListener("input", () => update(false));
+    input.addEventListener("change", () => update(true));
+    row.append(copy, input);
+    render();
+    grid.appendChild(row);
+  };
+
   numericPair("球员总评范围", "ratingRange", 0, 99, false);
   numericPair("球员价格范围（读不到价格时不要设置）", "priceRange", 0, 15_000_000, true);
+  numericValue(
+    "球队评分允许上浮",
+    "squadRatingOvershoot",
+    0,
+    5,
+    0.1,
+    "例如要求 83，设置 0.8 时接受 83.00–83.80。",
+  );
   toggle("只用普通卡", "commonOnly", "仅允许 EA 卡片 rareflag = 0；稀有金卡和特殊卡都会被排除。 ");
   toggle(
     "允许额外消耗必需特殊卡",
@@ -166,6 +222,7 @@ export function createCandidateRulesEditor(options: CandidateRulesEditorOptions)
       return {
         ratingRange: [...current.ratingRange],
         priceRange: [...current.priceRange],
+        squadRatingOvershoot: current.squadRatingOvershoot,
         commonOnly: current.commonOnly,
         allowExtraRequiredRarityGroupPlayers:
           current.allowExtraRequiredRarityGroupPlayers,

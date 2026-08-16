@@ -404,7 +404,7 @@ let fetchSBCData = async (executableSbc) => {
       .map((m) => m._item._metaData?.id)
       .slice(0, 11),
     subs: _challenge.squad._players
-      .map((m) => m._item.definitionId)
+      .map((m) => readPlayerDefinitionId(m._item))
       .slice(11, 99)
       .filter((f) => f > 0),
     awards: _challenge.awards
@@ -574,6 +574,28 @@ const ratingCountUI = async () => {
   });
 };
 
+const resolveEaHomeRoot = (view) => {
+  const candidate = view?.getRootElement?.()
+    ?? view?.__root
+    ?? view?._rootElement
+    ?? view?._root
+    ?? view?.root;
+  return candidate?.nodeType === 1 ? candidate : undefined;
+};
+
+const markEaHomeReady = (view) => {
+  runtimeState.eaHomeRoot = resolveEaHomeRoot(view);
+  runtimeState.eaHomeReadyAt = Date.now();
+  console.info("[FCX][Routine] EA首页已完成初始化", {
+    connected: runtimeState.eaHomeRoot?.isConnected === true,
+  });
+  queueMicrotask(() => {
+    if (typeof resumePendingRoutineRecovery === "function") {
+      void resumePendingRoutineRecovery();
+    }
+  });
+};
+
 const futHomeOverride = async () => {
   const homeHubInit = UTHomeHubView.prototype.init;
   UTHomeHubView.prototype.init = function (...args) {
@@ -584,6 +606,7 @@ const futHomeOverride = async () => {
         runtimeState.conceptPlayers = conceptPlayers;
       });
     }
+    requestAnimationFrame(() => markEaHomeReady(this));
     return result;
   };
 };

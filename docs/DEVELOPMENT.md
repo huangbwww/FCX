@@ -312,7 +312,8 @@ http://127.0.0.1:8000
   "port": 8000,
   "solver_features": {
     "strict_rating_window": 1,
-    "minimum_rating_first": 2
+    "minimum_rating_first": 2,
+    "configurable_rating_window": 1
   }
 }
 ```
@@ -327,11 +328,12 @@ http://127.0.0.1:8000
 {
   "sbcData": {},
   "clubPlayers": [],
-  "maxSolveTime": 10
+  "maxSolveTime": 10,
+  "ratingOvershoot": 0.8
 }
 ```
 
-`sbcData` 包含 set/challenge ID、标准化约束、阵型、砖块、当前方案和奖励摘要。`clubPlayers` 只包含求解器所需的数值与身份字段，不直接序列化 EA 实体。未知条件应在浏览器请求前停止。
+`sbcData` 包含 set/challenge ID、标准化约束、阵型、砖块、当前方案和奖励摘要。`clubPlayers` 只包含求解器所需的数值与身份字段，不直接序列化 EA 实体。`ratingOvershoot` 可选，范围为 `0–5.0`、按一位小数规范化；省略时保持旧行为 `0.8`。未知条件应在浏览器请求前停止。
 
 带球队评分要求时，响应可能附带：
 
@@ -439,8 +441,8 @@ git status --short
 
 ```powershell
 git push origin main
-git tag -a v26.1.0 -m "FCX 26.1.0"
-git push origin v26.1.0
+git tag -a v26.1.1 -m "FCX 26.1.1"
+git push origin v26.1.1
 ```
 
 `v*` 标签触发 Release 工作流，重新安装依赖、运行测试、构建 Windows EXE、生成 SHA256 和发布以下文件：

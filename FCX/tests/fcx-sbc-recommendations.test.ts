@@ -4,6 +4,7 @@ import {
   FCX_SBC_RECOMMENDATIONS,
   FCX_SBC_RULE_SNAPSHOT_VERSION,
   hasActivePriceRange,
+  normalizeSquadRatingOvershoot,
   resolveCandidateRules,
 } from "../src/config/fcx-sbc-recommendations";
 import type { SettingKey, SolverSettings } from "../src/types/settings";
@@ -46,7 +47,8 @@ describe("FCX SBC recommendation snapshot", () => {
   it("applies explicit v48 minimums and preserves unknown defaults", () => {
     const { own, inherited } = readers({ "0:0": { ratingRange: [65, 93] } });
     expect(resolveCandidateRules(1039, 1, inherited, own).ratingRange).toEqual([75, 87]);
-    expect(resolveCandidateRules(1333, 1, inherited, own).ratingRange).toEqual([74, 93]);
+    expect(resolveCandidateRules(1333, 1, inherited, own).ratingRange).toEqual([75, 93]);
+    expect(resolveCandidateRules(1355, 1, inherited, own).ratingRange).toEqual([75, 93]);
     expect(resolveCandidateRules(9999, 1, inherited, own).ratingRange).toEqual([65, 93]);
   });
 
@@ -60,14 +62,37 @@ describe("FCX SBC recommendation snapshot", () => {
 
   it("lets saved set and challenge rules override recommendations", () => {
     const { own, inherited } = readers({
-      "0:0": { ratingRange: [65, 93], priceRange: [null, null], commonOnly: false },
-      "1261:0": { ratingRange: [0, 99], priceRange: [null, null], commonOnly: false },
-      "1261:7": { allowExtraRequiredRarityGroupPlayers: true },
+      "0:0": {
+        ratingRange: [65, 93],
+        priceRange: [null, null],
+        squadRatingOvershoot: 0.8,
+        commonOnly: false,
+      },
+      "1261:0": {
+        ratingRange: [0, 99],
+        priceRange: [null, null],
+        squadRatingOvershoot: 2,
+        commonOnly: false,
+      },
+      "1261:7": {
+        squadRatingOvershoot: 0.1,
+        allowExtraRequiredRarityGroupPlayers: true,
+      },
     });
     const resolved = resolveCandidateRules(1261, 7, inherited, own);
     expect(resolved.ratingRange).toEqual([0, 99]);
     expect(resolved.commonOnly).toBe(false);
     expect(resolved.allowExtraRequiredRarityGroupPlayers).toBe(true);
+    expect(resolved.squadRatingOvershoot).toBe(0.1);
+    expect(resolved.sources.squadRatingOvershoot).toBe("challenge");
+  });
+
+  it("normalizes the squad-rating overshoot to 0-5 in tenths", () => {
+    expect(normalizeSquadRatingOvershoot(undefined)).toBe(0.8);
+    expect(normalizeSquadRatingOvershoot(-1)).toBe(0);
+    expect(normalizeSquadRatingOvershoot(2.04)).toBe(2);
+    expect(normalizeSquadRatingOvershoot(2.06)).toBe(2.1);
+    expect(normalizeSquadRatingOvershoot(6)).toBe(5);
   });
 
   it("detects either price boundary", () => {

@@ -15,7 +15,7 @@ os.environ.setdefault("FCX_SOLVER_WRITE_LOGS", "0")
 import optimize
 
 
-def solve_group_choice(groups, target=83, scope="GREATER"):
+def solve_group_choice(groups, target=83, scope="GREATER", max_overshoot=0.8):
     """Choose one complete squad and return its name and computed rating."""
     squad_size = len(groups[0]["ratings"])
     if any(len(group["ratings"]) != squad_size for group in groups):
@@ -51,6 +51,7 @@ def solve_group_choice(groups, target=83, scope="GREATER"):
         squad_size,
         target,
         scope,
+        max_overshoot,
     )
     if scope == "LOWER":
         optimize.set_objective(dataframe, model, players)
@@ -92,6 +93,43 @@ class SquadRatingTest(unittest.TestCase):
         self.assertEqual(window["maximum"], 83.8)
         self.assertEqual(window["minimum_rounded_total"], 913)
         self.assertEqual(window["maximum_rounded_total"], 921)
+
+    def test_rating_window_accepts_configurable_overshoot(self):
+        for overshoot, maximum in ((0, 83.0), (0.1, 83.1), (0.8, 83.8), (2, 85.0), (5, 88.0)):
+            with self.subTest(overshoot=overshoot):
+                window = optimize.squad_rating_window(
+                    83,
+                    11,
+                    max_overshoot=overshoot,
+                )
+                self.assertEqual(window["minimum"], 83.0)
+                self.assertEqual(window["maximum"], maximum)
+
+    def test_rating_window_normalizes_tenths_and_rejects_invalid_values(self):
+        self.assertEqual(
+            optimize.squad_rating_window(83, 11, max_overshoot=2.04)["maximum"],
+            85.0,
+        )
+        self.assertEqual(
+            optimize.squad_rating_window(83, 11, max_overshoot=2.06)["maximum"],
+            85.1,
+        )
+        for invalid in (-0.1, 5.1, float("inf")):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    optimize.squad_rating_window(83, 11, max_overshoot=invalid)
+
+    def test_wider_window_still_prefers_the_lowest_rating(self):
+        status, name, rating = solve_group_choice(
+            [
+                {"name": "lowest", "ratings": [83] * 11, "prices": [100] * 11},
+                {"name": "cheaper_high", "ratings": [85] * 11, "prices": [1] * 11},
+            ],
+            max_overshoot=2,
+        )
+        self.assertEqual(status, cp_model.OPTIMAL)
+        self.assertEqual(name, "lowest")
+        self.assertEqual(rating, 83.0)
 
     def test_score_calculation_uses_actual_squad_size(self):
         self.assertEqual(optimize.calculate_squad_rating([83] * 11), 83.0)

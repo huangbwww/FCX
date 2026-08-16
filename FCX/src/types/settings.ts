@@ -3,6 +3,7 @@ export interface SolverSettings {
   backendPort: number;
   eaRequestMaxAttempts: number;
   eaRequestRetryDelaySeconds: number;
+  eaSbcRequestIntervalMs: number;
   excludeTeams: number[];
   excludeRarity: string[];
   excludeNations: number[];
@@ -18,6 +19,7 @@ export interface SolverSettings {
   animateWalkouts: number;
   autoSubmit: number;
   maxSolveTime: number;
+  squadRatingOvershoot: number;
   priceCacheMinutes: number;
   ratingRange: [number, number];
   priceRange: [number | null, number | null];

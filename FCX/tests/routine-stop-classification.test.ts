@@ -3,6 +3,7 @@ import {
   classifyRoutineExecutionStop,
   isSolveFailureFallbackExhausted,
   isRoutineStepFatal,
+  resolveRoutineRecoveryFailure,
   shouldTriggerSolveFailureFallback,
 } from "../src/domain/routines/stop-classification";
 
@@ -42,6 +43,37 @@ describe("routine stop classification", () => {
     expect(isRoutineStepFatal("submit_failed")).toBe(true);
     expect(isRoutineStepFatal("pack_failed")).toBe(true);
     expect(isRoutineStepFatal("throttled")).toBe(true);
+  });
+
+  it("does not let an auxiliary invalid marker turn no-solution into page recovery", () => {
+    expect(resolveRoutineRecoveryFailure({
+      results: [{
+        stepId: "target",
+        stepKind: "sbc",
+        setId: 1017,
+        completedRuns: 0,
+        rewardPackIds: [],
+        stopKind: "no_solution",
+        reason: "无法在84.00–84.80内完成该SBC。",
+      }],
+      contextStopKind: "invalid",
+      contextStopReason: "无法在84.00–84.80内完成该SBC。",
+      scheduleStoppedReason: "本轮所有步骤均无进展，流程已提前结束。",
+    })).toBeUndefined();
+    expect(resolveRoutineRecoveryFailure({
+      results: [{
+        stepId: "target",
+        stepKind: "sbc",
+        setId: 1017,
+        completedRuns: 0,
+        rewardPackIds: [],
+        stopKind: "submit_failed",
+        reason: "SBC提交失败（状态403）。",
+      }],
+    })).toMatchObject({
+      stopKind: "submit_failed",
+      reason: "SBC提交失败（状态403）。",
+    });
   });
 
   it("triggers solve-failure compensation only for a no-solution result", () => {

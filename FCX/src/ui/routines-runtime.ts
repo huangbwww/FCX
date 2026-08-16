@@ -246,12 +246,88 @@ const openRoutineEditor = (routine, sets, initialPackGroups = []) => {
   ignoreValueTrack.className = "fcx-switch__track";
   ignoreValueSwitch.append(ignoreValueInput, ignoreValueTrack);
   ignoreValueRow.append(ignoreValueCopy, ignoreValueSwitch);
+  const fatalRecoveryEnabledRow = document.createElement("label");
+  fatalRecoveryEnabledRow.className = "fcx-routine-option";
+  const fatalRecoveryEnabledCopy = document.createElement("span");
+  const fatalRecoveryEnabledTitle = document.createElement("strong");
+  fatalRecoveryEnabledTitle.textContent =
+    "流程异常自动刷新恢复（解除300ban之前、没用明白脚本不要开不要开！）";
+  const fatalRecoveryEnabledHelp = document.createElement("small");
+  fatalRecoveryEnabledHelp.textContent =
+    "开启后，技术错误才会自动保存进度并刷新页面。";
+  fatalRecoveryEnabledCopy.append(
+    fatalRecoveryEnabledTitle,
+    fatalRecoveryEnabledHelp
+  );
+  const fatalRecoveryEnabledSwitch = document.createElement("span");
+  fatalRecoveryEnabledSwitch.className = "fcx-switch";
+  const fatalRecoveryEnabledInput = document.createElement("input");
+  fatalRecoveryEnabledInput.type = "checkbox";
+  fatalRecoveryEnabledInput.checked = draft.fatalRecoveryEnabled === true;
+  fatalRecoveryEnabledInput.setAttribute("aria-label", "流程异常自动刷新恢复");
+  const fatalRecoveryEnabledTrack = document.createElement("span");
+  fatalRecoveryEnabledTrack.className = "fcx-switch__track";
+  fatalRecoveryEnabledSwitch.append(
+    fatalRecoveryEnabledInput,
+    fatalRecoveryEnabledTrack
+  );
+  fatalRecoveryEnabledRow.append(
+    fatalRecoveryEnabledCopy,
+    fatalRecoveryEnabledSwitch
+  );
+  const fatalRecoveryLabel = document.createElement("label");
+  fatalRecoveryLabel.className = "fcx-routine-field";
+  fatalRecoveryLabel.innerHTML = "<span>刷新后的处理方式</span>";
+  const fatalRecoverySelect = document.createElement("select");
+  fatalRecoverySelect.innerHTML = `
+    <option value="stop">刷新后停止任务</option>
+    <option value="resume">刷新后从中断处恢复</option>
+    <option value="restart">刷新后重新执行本流程</option>
+  `;
+  fatalRecoverySelect.value = draft.fatalRecoveryMode || "restart";
+  fatalRecoverySelect.title =
+    "遇到会终止永动机的EA请求、提交或开包错误时，FCX会保存进度并自动刷新页面。";
+  const fatalRecoveryControls = document.createElement("div");
+  fatalRecoveryControls.className = "fcx-routine-recovery-controls";
+  fatalRecoveryControls.append(fatalRecoverySelect);
+  fatalRecoveryLabel.appendChild(fatalRecoveryControls);
+  const fatalRecoveryMaxLabel = document.createElement("label");
+  fatalRecoveryMaxLabel.className = "fcx-routine-field";
+  fatalRecoveryMaxLabel.innerHTML = "<span>最大自动刷新次数</span>";
+  const fatalRecoveryMaxInput = document.createElement("input");
+  fatalRecoveryMaxInput.type = "number";
+  fatalRecoveryMaxInput.min = "1";
+  fatalRecoveryMaxInput.max = "100";
+  fatalRecoveryMaxInput.step = "1";
+  fatalRecoveryMaxInput.value = String(
+    normalizeRoutineRecoveryMaxReloads(draft.fatalRecoveryMaxReloads)
+  );
+  fatalRecoveryMaxInput.title = "输入1–100；次数不包含首次执行。";
+  fatalRecoveryMaxInput.setAttribute("aria-label", "最大自动刷新次数");
+  fatalRecoveryMaxLabel.appendChild(fatalRecoveryMaxInput);
+  const syncFatalRecoveryControls = () => {
+    fatalRecoverySelect.disabled = !fatalRecoveryEnabledInput.checked;
+    fatalRecoveryMaxInput.disabled = !fatalRecoveryEnabledInput.checked;
+    fatalRecoveryLabel.classList.toggle(
+      "is-disabled",
+      !fatalRecoveryEnabledInput.checked
+    );
+    fatalRecoveryMaxLabel.classList.toggle(
+      "is-disabled",
+      !fatalRecoveryEnabledInput.checked
+    );
+  };
+  fatalRecoveryEnabledInput.addEventListener("change", syncFatalRecoveryControls);
+  syncFatalRecoveryControls();
   basics.append(
     nameLabel,
     descLabel,
     modeLabel,
     totalCyclesLabel,
-    ignoreValueRow
+    ignoreValueRow,
+    fatalRecoveryEnabledRow,
+    fatalRecoveryLabel,
+    fatalRecoveryMaxLabel
   );
 
   const stepSection = document.createElement("section");
@@ -652,6 +728,16 @@ const openRoutineEditor = (routine, sets, initialPackGroups = []) => {
     draft.totalCycles = normalizeRoutineRunsInput(totalCyclesInput.value, 5);
     totalCyclesInput.value = String(draft.totalCycles);
     draft.ignoreValue = ignoreValueInput.checked;
+    draft.fatalRecoveryEnabled = fatalRecoveryEnabledInput.checked;
+    draft.fatalRecoveryMode = fatalRecoverySelect.value === "stop"
+      ? "stop"
+      : fatalRecoverySelect.value === "resume"
+        ? "resume"
+        : "restart";
+    draft.fatalRecoveryMaxReloads = normalizeRoutineRecoveryMaxReloads(
+      fatalRecoveryMaxInput.value
+    );
+    fatalRecoveryMaxInput.value = String(draft.fatalRecoveryMaxReloads);
     draft.totwFallback.enabled = enabled.checked;
     draft.totwFallback.setId = Number(fallbackSelect.value) || 1017;
     draft.totwFallback.runs = Math.max(1, Math.trunc(Number(fallbackRuns.value) || 1));

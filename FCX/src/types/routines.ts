@@ -1,7 +1,9 @@
-import type { PackTaskSummary } from "./packs";
+import type { PackTaskSummary, SbcSubmissionSummary } from "./packs";
+import type { SbcRewardPlan, SbcRunOptions } from "./sbc-run";
 
 export type RoutineExecutionMode = "round_robin" | "exhaust_step";
 export type RoutineOrigin = "builtin" | "custom";
+export type RoutineFatalRecoveryMode = "stop" | "resume" | "restart";
 
 export interface RoutineStepBase {
   id: string;
@@ -66,11 +68,14 @@ export interface RoutineDefinition {
   totwFallback: RoutineTotwFallback;
   solveFailureFallback: RoutineSolveFailureFallback;
   storageFallback: StorageOverflowFallback;
+  fatalRecoveryEnabled: boolean;
+  fatalRecoveryMode: RoutineFatalRecoveryMode;
+  fatalRecoveryMaxReloads: number;
   builtinSnapshotVersion?: number;
 }
 
 export interface RoutineDocument {
-  version: 5;
+  version: 8;
   builtinOverrides: Record<string, RoutineDefinition>;
   custom: Record<string, RoutineDefinition>;
 }
@@ -88,6 +93,46 @@ export type RoutineStopKind =
   | "pack_failed"
   | "invalid";
 
+export interface RoutineSolveFailureContext {
+  source: "main_step" | "totw_fallback";
+  failedSetId: number;
+  failedSetName: string;
+  mainStepId: string;
+  mainSetId: number;
+  mainStepName: string;
+  reason: string;
+}
+
+export type RoutineSolveFailureFallbackOutcome =
+  | "started"
+  | "fallback_completed"
+  | "fallback_unavailable"
+  | "fallback_failed"
+  | "retry_succeeded"
+  | "retry_no_solution"
+  | "retry_failed";
+
+export interface RoutineSolveFailureFallbackEvent {
+  occurredAt: string;
+  cycle: number;
+  stepIndex: number;
+  mainStepId: string;
+  mainSetId: number;
+  mainStepName: string;
+  failureSource: RoutineSolveFailureContext["source"];
+  failedSetId: number;
+  failedSetName: string;
+  failureReason: string;
+  fallbackSetId: number;
+  fallbackSetName?: string;
+  requestedRuns: number;
+  completedRuns: number;
+  outcome: RoutineSolveFailureFallbackOutcome;
+  reason?: string;
+  retryStopKind?: RoutineStopKind;
+  retryReason?: string;
+}
+
 export interface RoutineStepResult {
   stepId: string;
   stepKind: "sbc" | "pack";
@@ -100,6 +145,8 @@ export interface RoutineStepResult {
   rewardPlayerPickIds?: number[];
   stopKind: RoutineStopKind;
   reason?: string;
+  setName?: string;
+  solveFailure?: RoutineSolveFailureContext;
 }
 
 export interface RoutineExecutionContext {
@@ -120,6 +167,81 @@ export interface RoutineExecutionContext {
   stopReason?: string;
   isTotwFallback: boolean;
   isSolveFailureFallback: boolean;
+  currentStepCompleted: number;
+  recoveryErrors?: RoutineRecoveryErrorEvent[];
+  solveFailureFallbackEvents?: RoutineSolveFailureFallbackEvent[];
+  pendingOperation?: RoutineRecoveryPendingOperation;
+}
+
+export interface RoutineRecoveryCursor {
+  cycle: number;
+  stepIndex: number;
+  completedInStep: number;
+}
+
+export type RoutineRecoveryPendingOperation = {
+  kind: "sbc_submit";
+  stepId: string;
+  setId: number;
+  challengeId: number;
+  beforeSetCompletions: number;
+  countsTowardStep: boolean;
+  startedAt: number;
+  submission: Omit<SbcSubmissionSummary, "sequence">;
+  reward: {
+    options: SbcRunOptions;
+    rewardPlan: SbcRewardPlan;
+    packSummary: PackTaskSummary;
+    completedRuns: number;
+    storageRecoveryCount: number;
+  };
+};
+
+export interface RoutineRecoveryErrorEvent {
+  occurredAt: string;
+  reloadAttempt: number;
+  maxReloads: number;
+  stopKind: RoutineStopKind;
+  reason: string;
+  technicalMessage: string;
+  cycle: number;
+  stepIndex: number;
+  stepId?: string;
+  stepName?: string;
+  setId?: number;
+  operation?: string;
+  status?: number;
+  phase?: string;
+}
+
+export interface RoutineRecoveryCheckpoint {
+  version: 2;
+  personaId: string;
+  taskId: string;
+  routine: RoutineDefinition;
+  recoveryMode: RoutineFatalRecoveryMode;
+  cursor: RoutineRecoveryCursor;
+  completedByStep: Record<string, number>;
+  results: RoutineStepResult[];
+  notices: string[];
+  packSummary: PackTaskSummary;
+  storageRecoveryCount: number;
+  reloadCount: number;
+  createdAt: number;
+  updatedAt: number;
+  lastError?: string;
+  recoveryErrors: RoutineRecoveryErrorEvent[];
+  solveFailureFallbackEvents?: RoutineSolveFailureFallbackEvent[];
+  pendingOperation?: RoutineRecoveryPendingOperation;
+  pendingReward?: {
+    stepResult: RoutineStepResult;
+    options: SbcRunOptions;
+    rewardPlan: SbcRewardPlan;
+    packSummary: PackTaskSummary;
+    completedRuns: number;
+    storageRecoveryCount: number;
+    stoppedReason?: string;
+  };
 }
 
 export interface SubmissionCounterSnapshot {

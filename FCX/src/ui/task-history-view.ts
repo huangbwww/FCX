@@ -29,6 +29,16 @@ const LOCATION_LABELS = {
   duplicate: "重复球员",
 } as const;
 
+const SOLVE_FALLBACK_OUTCOME_LABELS = {
+  started: "已触发",
+  fallback_completed: "补偿已完成",
+  fallback_unavailable: "补偿不可用",
+  fallback_failed: "补偿失败",
+  retry_succeeded: "原步骤重试成功",
+  retry_no_solution: "原步骤重试仍无解",
+  retry_failed: "原步骤重试失败",
+} as const;
+
 const numberOrZero = (value: unknown): number => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
@@ -130,6 +140,33 @@ export const buildTaskHistoryDiagnosticText = (
       endedAt: record.endedAt,
       status: record.status,
       ...(record.reason ? { reason: record.reason } : {}),
+      ...(record.recoveryErrors?.length
+        ? {
+            recoveryErrors: record.recoveryErrors.map((event) => ({
+              occurredAt: event.occurredAt,
+              reloadAttempt: event.reloadAttempt,
+              maxReloads: event.maxReloads,
+              stopKind: event.stopKind,
+              reason: event.reason,
+              technicalMessage: event.technicalMessage,
+              cycle: event.cycle,
+              stepIndex: event.stepIndex,
+              ...(event.stepId ? { stepId: event.stepId } : {}),
+              ...(event.stepName ? { stepName: event.stepName } : {}),
+              ...(event.setId ? { setId: event.setId } : {}),
+              ...(event.operation ? { operation: event.operation } : {}),
+              ...(event.status ? { status: event.status } : {}),
+              ...(event.phase ? { phase: event.phase } : {}),
+            })),
+          }
+        : {}),
+      ...(record.solveFailureFallbackEvents?.length
+        ? {
+            solveFailureFallbackEvents: record.solveFailureFallbackEvents.map(
+              (event) => ({ ...event }),
+            ),
+          }
+        : {}),
       summary: {
         packsOpened: summary.packsOpened,
         picksCompleted: summary.picksCompleted,
@@ -216,6 +253,72 @@ export function renderTaskHistoryDetail(
   appendMetric(documentRef, metrics, "球员挑选", summary.picksCompleted);
   appendMetric(documentRef, metrics, "获得球员", summary.players.length);
   content.appendChild(metrics);
+
+  if (record.recoveryErrors?.length) {
+    const recovery = documentRef.createElement("section");
+    recovery.className = "fcx-task-history-detail__section";
+    appendSectionHeading(
+      documentRef,
+      recovery,
+      "异常恢复记录",
+      `本次任务自动刷新恢复 ${record.recoveryErrors.length} 次`,
+    );
+    for (const event of record.recoveryErrors) {
+      const item = documentRef.createElement("article");
+      item.className = "fcx-task-history-detail__recovery";
+      const heading = documentRef.createElement("strong");
+      heading.textContent = `第 ${event.reloadAttempt} / ${event.maxReloads} 次 · ${event.operation || "流程异常"}`;
+      const meta = documentRef.createElement("small");
+      const step = event.stepName || (event.setId ? `SBC #${event.setId}` : `第 ${event.stepIndex + 1} 步`);
+      meta.textContent = `${formatDateTime(event.occurredAt)} · 第 ${event.cycle + 1} 轮 · ${step}${event.status ? ` · 状态 ${event.status}` : ""}`;
+      const reason = documentRef.createElement("p");
+      reason.textContent = event.reason;
+      item.append(heading, meta, reason);
+      if (event.technicalMessage && event.technicalMessage !== event.reason) {
+        const technical = documentRef.createElement("small");
+        technical.textContent = `技术信息：${event.technicalMessage}`;
+        item.appendChild(technical);
+      }
+      recovery.appendChild(item);
+    }
+    content.appendChild(recovery);
+  }
+
+  if (record.solveFailureFallbackEvents?.length) {
+    const fallback = documentRef.createElement("section");
+    fallback.className = "fcx-task-history-detail__section";
+    appendSectionHeading(
+      documentRef,
+      fallback,
+      "求解失败补偿记录",
+      `本次任务触发 ${record.solveFailureFallbackEvents.length} 次求解失败补偿`,
+    );
+    record.solveFailureFallbackEvents.forEach((event, index) => {
+      const item = documentRef.createElement("article");
+      item.className = "fcx-task-history-detail__recovery";
+      const heading = documentRef.createElement("strong");
+      const outcome = SOLVE_FALLBACK_OUTCOME_LABELS[event.outcome]
+        || String(event.outcome || "已结束");
+      heading.textContent = `第 ${index + 1} 次 · ${outcome}`;
+      const meta = documentRef.createElement("small");
+      const failureLabel = event.failureSource === "totw_fallback"
+        ? `主步骤“${event.mainStepName}”的周黑补给“${event.failedSetName}”`
+        : `步骤“${event.failedSetName}”`;
+      const fallbackLabel = event.fallbackSetName
+        || `补偿 SBC #${event.fallbackSetId}`;
+      meta.textContent = `${formatDateTime(event.occurredAt)} · ${failureLabel} → ${fallbackLabel} · 完成 ${event.completedRuns} 次`;
+      const reason = documentRef.createElement("p");
+      reason.textContent = event.reason || event.failureReason;
+      item.append(heading, meta, reason);
+      if (event.retryReason && event.retryReason !== event.reason) {
+        const retry = documentRef.createElement("small");
+        retry.textContent = `原步骤重试：${event.retryReason}`;
+        item.appendChild(retry);
+      }
+      fallback.appendChild(item);
+    });
+    content.appendChild(fallback);
+  }
 
   const destinations = documentRef.createElement("section");
   destinations.className = "fcx-task-history-detail__section";

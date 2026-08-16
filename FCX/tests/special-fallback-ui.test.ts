@@ -61,6 +61,12 @@ describe("special fallback UI wiring", () => {
     expect(runtime).toContain("主线进度 ${targetLabel} · 正在执行第 ${cycle} 轮周黑补给");
     expect(runtime.match(/runWithSpecialFallbackLoop\(\{/g)).toHaveLength(2);
     expect(runtime).toContain("[FCX][Routine] TOTW fallback cycle");
+    expect(runtime).toContain('source: "totw_fallback"');
+    expect(runtime).toContain('stopKind: result.stopKind || "invalid"');
+    expect(runtime).toContain("return lastTotwFallbackResult.success");
+    expect(runtime).not.toContain(
+      'result.stopKind === "cancelled" ? "cancelled" : "invalid"',
+    );
     expect(runtime).toContain("outcome.replenishmentCycles");
     expect(routineFallback.indexOf("replenish: async")).toBeLessThan(
       routineFallback.indexOf(

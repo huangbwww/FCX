@@ -82,6 +82,7 @@ function orderedRuntime(): Plugin {
 import { RuntimeState } from "./state/runtime-state";
 import { HttpRequestError, requestTextWithRetry, postJsonCompat } from "./api/http";
 import { areEaWebAppServicesReady } from "./platform/ea-readiness";
+import { delayMilliseconds, evaluateRoutineRecoveryReadiness, ROUTINE_RECOVERY_HOME_STABLE_MS, ROUTINE_RECOVERY_READY_POLL_MS, waitForRoutineRecoveryCountdown } from "./platform/routine-recovery";
 import { SettingsStore } from "./state/settings-store";
 import { SettingsEditSession } from "./state/settings-edit-session";
 import { PlayerProtectionStore } from "./state/player-protection-store";
@@ -100,7 +101,7 @@ import { PRICE_LOOKUP_BATCH_SIZE, STORAGE_KEYS } from "./config/constants";
 import { openPriceCacheDiagnosticsDialog } from "./ui/price-cache-diagnostics";
 import { localizeFcxNotification, localizeSolverStatus } from "./ui/notifications";
 import { planUnassignedRoutes } from "./domain/packs/routing";
-import { expandPackSelections, insertImmediatePackSelections, nextStorageRecoveryRound, storageProgressMade } from "./domain/packs/storage-recovery";
+import { expandPackSelections, incrementStorageRecoveryCount, insertImmediatePackSelections, storageProgressMade } from "./domain/packs/storage-recovery";
 import { openFcxModal } from "./ui/modal";
 import { EaRequestGate, eaResponseStatus, executeEaRequest, isEaThrottleStatus, normalizeEaRequestRetryConfig } from "./platform/ea-request-retry";
 import { SbcSessionCache } from "./state/sbc-session-cache";
@@ -111,10 +112,11 @@ import { createSbcExecutionContext, normalizeSbcRunOptions } from "./types/sbc-r
 import { executeSbcSetPlan } from "./domain/sbc/set-execution";
 import { parseSolveOutcome, placeSolverResults } from "./domain/sbc/solver-outcome";
 import { formatSquadRatingWindow, resolveStrictSquadRatingWindow, validateMinimumRatingProof, validateSolverSquadRating } from "./domain/sbc/squad-rating";
-import { requiresMinimumRatingFirst, supportsMinimumRatingFirst } from "./domain/sbc/backend-features";
+import { requiresMinimumRatingFirst, supportsConfigurableRatingWindow, supportsMinimumRatingFirst } from "./domain/sbc/backend-features";
 import { ensureTaskOverlayRoot, mountTaskEndButton, removeLegacyTaskControls, removeTaskEndButton, removeTaskOverlayRoot, setTaskOverlayFallbackActive } from "./ui/task-overlay";
 import { EaTaskShieldController } from "./ui/task-shield";
 import { extractActiveSquadEntityItemIds, extractActiveSquadItemIds, filterProtectedPlayers, findProtectedPlayerViolations, isEvolutionPlayer, readActiveSquadItemIdsFromCandidates, resolveActiveSquadEntity, resolveActiveSquadIdCandidates } from "./domain/inventory/player-protection";
+import { readPlayerDefinitionId } from "./domain/inventory/player-identity";
 import { aggregateProtectedPlayers } from "./domain/inventory/protected-players";
 import { getSbcRepeatability, effectiveRequestedRuns, shouldContinueSbcTask } from "./domain/sbc/repeatability";
 import { getSbcCatalogStatus } from "./domain/sbc/catalog-status";
@@ -131,7 +133,8 @@ import {
 } from "./domain/packs/native-pack-action";
 import { openPackTaskSummaryDialog } from "./ui/pack-task-summary";
 import { openProtectedPlayersDialog } from "./ui/protected-players-dialog";
-import { RoutineStore } from "./state/routine-store";
+import { normalizeRoutine, RoutineStore } from "./state/routine-store";
+import { RoutineRecoveryStore, normalizeRoutineRecoveryMaxReloads, routineRecoveryDelayMs } from "./state/routine-recovery-store";
 import { RoutineCatalogUpdateController } from "./update/routine-catalog";
 import { SpecialFallbackStore } from "./state/special-fallback-store";
 import { StorageOverflowFallbackStore } from "./state/storage-overflow-fallback-store";
@@ -142,6 +145,7 @@ import {
   classifyRoutineExecutionStop,
   isRoutineStepFatal,
   isSolveFailureFallbackExhausted,
+  resolveRoutineRecoveryFailure,
   shouldTriggerSolveFailureFallback,
 } from "./domain/routines/stop-classification";
 import { runWithSpecialFallbackLoop } from "./domain/routines/fallback-retry";
@@ -182,6 +186,7 @@ const fcxSbcCache = new SbcSessionCache();
 const fcxInventoryCache = new InventorySessionCache();
 const fcxAutoSbcSessionSnapshot = new AutoSbcSessionSnapshotStore();
 const fcxRoutineStore = new RoutineStore(window.localStorage);
+const fcxRoutineRecoveryStore = new RoutineRecoveryStore(window.sessionStorage);
 const fcxRoutineCatalogController = new RoutineCatalogUpdateController(
   GM_xmlhttpRequest,
   fcxRoutineStore
@@ -201,6 +206,11 @@ const executeFcxEaRequest = (factory, label, options = {}) => {
     timeoutMs: options.timeoutMs,
   });
   const isSbcRequest = options.scope === "SBC" && options.useSbcRequestGate !== false;
+  if (isSbcRequest) {
+    fcxSbcEaRequestGate.setMinimumIntervalMs(
+      fcxSettingsStore.getValue(0, 0, "eaSbcRequestIntervalMs") ?? 900
+    );
+  }
   return executeEaRequest(factory, {
     label,
     maxAttempts: options.maxAttempts ?? (isSbcRequest ? 4 : config.maxAttempts),
@@ -215,6 +225,7 @@ const executeFcxEaRequest = (factory, label, options = {}) => {
     requestGate: isSbcRequest ? fcxSbcEaRequestGate : undefined,
     retryThrottle: options.retryThrottle ?? isSbcRequest,
     retryUnauthorized: options.retryUnauthorized ?? isSbcRequest,
+    retryStatuses: options.retryStatuses,
     resetThrottleOnSuccess: options.resetThrottleOnSuccess,
     onRetry: (event) => {
       const seconds = Math.max(1, Math.round(event.retryDelayMs / 1000));
@@ -415,6 +426,12 @@ const assertMinimumRatingBackend = async (backendPort, input) => {
   if (!supportsMinimumRatingFirst(health)) {
     throw new FcxBackendUpgradeRequiredError(
       "当前 FCX 后端不支持最低评分优先，请更新 FCX 后端 EXE。"
+    );
+  }
+  const overshoot = Number(payload?.ratingOvershoot ?? 0.8);
+  if (Math.abs(overshoot - 0.8) > 0.0001 && !supportsConfigurableRatingWindow(health)) {
+    throw new FcxBackendUpgradeRequiredError(
+      "当前 FCX 后端不支持自定义球队评分上浮，请更新 FCX 后端 EXE。"
     );
   }
 };

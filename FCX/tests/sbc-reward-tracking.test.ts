@@ -34,6 +34,36 @@ describe("SBC reward tracking", () => {
     ]);
   });
 
+  it("recognizes player-pick rewards with private EA fields and no isItem flag", () => {
+    expect(classifySbcRewards([{
+      type: "item",
+      value: 0,
+      item: {
+        _definitionId: 404,
+        subtype: 237,
+        _staticData: { id: 404, description: "任意评分球员挑选" },
+      },
+    }])).toEqual([{
+      kind: "player_pick",
+      id: 404,
+      count: 1,
+      label: "任意评分球员挑选",
+    }]);
+  });
+
+  it("recognizes an explicit player-pick award type without an item payload", () => {
+    expect(classifySbcRewards([{
+      type: "player_pick",
+      value: 505,
+      displayName: "显式挑选奖励",
+    }])).toEqual([{
+      kind: "player_pick",
+      id: 505,
+      count: 1,
+      label: "显式挑选奖励",
+    }]);
+  });
+
   it("opens only the quantity added after the pack baseline", () => {
     const plan = createSbcExecutionContext(undefined).rewardPlan;
     plan.packBaselineByKey[packRewardKey(101, false)] = 10;
@@ -90,6 +120,27 @@ describe("SBC reward tracking", () => {
     }]);
     markPlayerPickProcessed(plan, 202);
     expect(hasPendingTrackedRewards(plan)).toBe(false);
+  });
+
+  it("matches unassigned player picks that expose only private definition fields", () => {
+    const plan = createSbcExecutionContext(undefined).rewardPlan;
+    recordExpectedRewards(plan, [{
+      kind: "player_pick",
+      id: 404,
+      count: 1,
+      label: "私有字段挑选",
+    }]);
+    const current = {
+      id: 9901,
+      _definitionId: 404,
+      subtype: 237,
+      _staticData: { id: 404 },
+    };
+    expect(selectNewPlayerPickItems(plan, [current])).toEqual([{
+      item: current,
+      definitionId: 404,
+      label: "私有字段挑选",
+    }]);
   });
 
   it("consumes historical picks without marking the current reward processed", () => {

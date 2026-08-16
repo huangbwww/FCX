@@ -46,6 +46,7 @@ export interface ExecuteEaRequestOptions<T = unknown> {
   requestGate?: EaRequestGate;
   retryThrottle?: boolean;
   retryUnauthorized?: boolean;
+  retryStatuses?: readonly number[];
   resetThrottleOnSuccess?: boolean;
 }
 
@@ -267,9 +268,16 @@ export class EaRequestGate {
   private throttleLevel = 0;
 
   constructor(
-    private readonly minimumIntervalMs = DEFAULT_EA_SBC_REQUEST_INTERVAL_MS,
+    private minimumIntervalMs = DEFAULT_EA_SBC_REQUEST_INTERVAL_MS,
     private readonly throttleBackoffMs: readonly number[] = DEFAULT_EA_SBC_THROTTLE_BACKOFF_MS,
   ) {}
+
+  setMinimumIntervalMs(value: unknown): void {
+    const numeric = Number(value);
+    this.minimumIntervalMs = Number.isFinite(numeric)
+      ? Math.min(10_000, Math.max(0, Math.trunc(numeric)))
+      : DEFAULT_EA_SBC_REQUEST_INTERVAL_MS;
+  }
 
   async beforeRequest(label: string, isCancelled?: () => boolean): Promise<void> {
     let release!: () => void;
@@ -375,7 +383,12 @@ export async function executeEaRequest<T = unknown>(
       return result;
     } catch (caught) {
       const error = toEaRequestError(caught, options.label);
-      const retryable = error.retryable || (options.retryUnauthorized && error.status === 401);
+      const explicitRetryStatuses = new Set(
+        (options.retryStatuses || []).map(Number).filter(Number.isFinite),
+      );
+      const retryable = error.retryable
+        || (options.retryUnauthorized && error.status === 401)
+        || (error.status !== undefined && explicitRetryStatuses.has(error.status));
       if (!retryable) throw error;
       const verified = await verifyWriteFailure(options, error, attempt);
       if (verified.applied) return verified.value as T;

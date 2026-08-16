@@ -18,6 +18,7 @@ export interface EaObservable<T> {
 }
 
 export interface EaStaticPlayerData {
+  id?: number;
   name: string;
   firstName: string;
   lastName: string;
@@ -38,6 +39,7 @@ export interface EaChemProfile {
 export interface EaPlayer {
   id: number;
   definitionId: number;
+  _definitionId?: number;
   rating: number;
   teamId: number | string;
   leagueId: number | string;

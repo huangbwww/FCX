@@ -77,6 +77,8 @@ describe("FCX routine catalog", () => {
     expect(parsed.routines).toHaveLength(7);
     expect(parsed.routines.every((routine) => routine.origin === "builtin")).toBe(true);
     expect(parsed.routines.every((routine) => routine.builtinSnapshotVersion === 52)).toBe(true);
+    expect(parsed.routines.every((routine) => !routine.fatalRecoveryEnabled)).toBe(true);
+    expect(parsed.routines.every((routine) => routine.fatalRecoveryMaxReloads === 3)).toBe(true);
     expect(parsed.routines.every((routine) => (
       !routine.solveFailureFallback.enabled
       && routine.solveFailureFallback.setId === 0
@@ -253,6 +255,13 @@ describe("FCX routine catalog", () => {
     expect(store.get("totw-x5")?.name).toBe("远程周黑默认");
     expect(store.resetBuiltin("totw-x5")).toBe(false);
     expect(store.replaceBuiltinCatalog(parsed.routines, 49)).toBe(false);
+  });
+
+  it("never lets a remote catalog enable automatic page recovery", () => {
+    const remote = structuredClone(catalog());
+    (remote.routines[0] as Record<string, unknown>).fatalRecoveryEnabled = true;
+    const parsed = parseRoutineCatalogValue(remote);
+    expect(parsed.routines[0]?.fatalRecoveryEnabled).toBe(false);
   });
 
   it("keeps edits made against the current catalog version", () => {

@@ -44,6 +44,8 @@ const requiredFragments = [
   "发现新版本",
   "前往官网",
   "localBackendUrl(backendPort, \"/solve\")",
+  "squadRatingOvershoot",
+  "configurable_rating_window",
   "并确认 EXE 与用户脚本端口一致",
   "FCX求解",
   "本次奖励卡包尚未到账，未打开仓库中已有的同名卡包。",

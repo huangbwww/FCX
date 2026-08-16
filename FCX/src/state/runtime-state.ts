@@ -41,6 +41,8 @@ export class RuntimeState {
   activeRoutineExecution: RoutineExecutionContext | undefined;
   packRunActive = false;
   academyRunActive = false;
+  eaHomeReadyAt = 0;
+  eaHomeRoot: HTMLElement | undefined;
   countDownInterval: ReturnType<typeof setInterval> | undefined;
   failedChallenges: unknown;
   ppView: unknown;

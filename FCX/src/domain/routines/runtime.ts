@@ -1,22 +1,375 @@
 // @ts-nocheck
 // Runtime bridge between the typed routine scheduler and EA's private SBC entities.
 
-const createRoutineContext = (routine) => ({
-  id: `fcx-routine-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+const serializableRoutineResults = (results = []) => results.map((result) => ({
+  stepId: result.stepId,
+  stepKind: result.stepKind,
+  ...(result.setId ? { setId: Number(result.setId) } : {}),
+  ...(result.packId ? { packId: Number(result.packId) } : {}),
+  completedRuns: Number(result.completedRuns || 0),
+  ...(result.packsOpened !== undefined ? { packsOpened: Number(result.packsOpened || 0) } : {}),
+  ...(result.progressUnits !== undefined ? { progressUnits: Number(result.progressUnits || 0) } : {}),
+  rewardPackIds: [...(result.rewardPackIds || [])].map(Number),
+  rewardPlayerPickIds: [...(result.rewardPlayerPickIds || [])].map(Number),
+  stopKind: result.stopKind,
+  ...(result.reason ? { reason: String(result.reason) } : {}),
+  ...(result.setName ? { setName: String(result.setName) } : {}),
+  ...(result.solveFailure
+    ? { solveFailure: structuredClone(result.solveFailure) }
+    : {}),
+}));
+
+const createRoutineContext = (routine, checkpoint) => ({
+  id: checkpoint?.taskId || `fcx-routine-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   routineId: routine.id,
+  routineSnapshot: structuredClone(routine),
   mode: routine.mode,
   cancelled: false,
-  cycle: 0,
-  stepIndex: 0,
+  cycle: Number(checkpoint?.cursor?.cycle || 0),
+  stepIndex: Number(checkpoint?.cursor?.stepIndex || 0),
   totalCycles: routine.totalCycles === -1 ? -1 : Number(routine.totalCycles || 5),
-  completedByStep: {},
-  results: [],
-  packSummary: createPackTaskSummary(),
+  completedByStep: { ...(checkpoint?.completedByStep || {}) },
+  results: serializableRoutineResults(checkpoint?.results || []),
+  notices: [...(checkpoint?.notices || [])],
+  packSummary: checkpoint?.packSummary
+    ? structuredClone(checkpoint.packSummary)
+    : createPackTaskSummary(),
   storageFallback: routine.storageFallback || { enabled: false, setId: 0, runs: 1 },
-  storageRecoveryCount: 0,
+  storageRecoveryCount: Number(checkpoint?.storageRecoveryCount || 0),
   isTotwFallback: false,
   isSolveFailureFallback: false,
+  currentStepCompleted: Number(checkpoint?.cursor?.completedInStep || 0),
+  recoveryReloadCount: Number(checkpoint?.reloadCount || 0),
+  recoveryErrors: structuredClone(checkpoint?.recoveryErrors || []),
+  solveFailureFallbackEvents: structuredClone(
+    checkpoint?.solveFailureFallbackEvents || [],
+  ),
+  recoveryCreatedAt: Number(checkpoint?.createdAt || Date.now()),
+  pendingReward: checkpoint?.pendingReward
+    ? structuredClone(checkpoint.pendingReward)
+    : undefined,
+  pendingOperation: checkpoint?.pendingOperation
+    ? structuredClone(checkpoint.pendingOperation)
+    : undefined,
 });
+
+const recoverableRoutineStopKinds = new Set([
+  "throttled",
+  "submit_failed",
+  "pack_failed",
+  "invalid",
+]);
+
+const isRecoverableRoutineFailure = (stopKind) =>
+  recoverableRoutineStopKinds.has(String(stopKind || ""));
+
+const currentRoutineRecoveryStep = (routine, context) =>
+  routine?.steps?.[Math.max(0, Number(context?.stepIndex || 0))];
+
+const routineRecoveryOperation = (stopKind, context) => {
+  if (context?.pendingOperation?.kind === "sbc_submit") return "提交SBC";
+  if (stopKind === "submit_failed") return "提交SBC";
+  if (stopKind === "pack_failed") return "处理卡包或奖励";
+  if (stopKind === "throttled") return "EA请求限流";
+  return "执行永动机流程";
+};
+
+const createRoutineRecoveryError = ({
+  routine,
+  context,
+  stopKind,
+  reason,
+  source,
+  result,
+  reloadAttempt,
+  maxReloads,
+}) => {
+  const step = currentRoutineRecoveryStep(routine, context);
+  const technicalMessage = String(
+    source?.message || result?.reason || reason || "永动机流程发生未知错误。"
+  );
+  const statusFromMessage = technicalMessage.match(/(?:状态|status)\s*[:：]?\s*(\d{3})/i);
+  const status = eaResponseStatus(source) ?? (
+    statusFromMessage ? Number(statusFromMessage[1]) : undefined
+  );
+  const friendlyReason = String(reason || technicalMessage);
+  const setId = Number(result?.setId || (step?.kind === "sbc" ? step.setId : 0));
+  const stepName = String(
+    result?.setName
+    || (step?.kind === "pack" ? step.packName : "")
+    || (setId > 0 ? `SBC #${setId}` : "")
+  );
+  return {
+    occurredAt: new Date().toISOString(),
+    reloadAttempt,
+    maxReloads,
+    stopKind,
+    reason: friendlyReason,
+    technicalMessage,
+    cycle: Math.max(0, Number(context?.cycle || 0)),
+    stepIndex: Math.max(0, Number(context?.stepIndex || 0)),
+    ...(step?.id ? { stepId: String(step.id) } : {}),
+    ...(stepName ? { stepName } : {}),
+    ...(setId > 0 ? { setId } : {}),
+    operation: routineRecoveryOperation(stopKind, context),
+    ...(Number.isFinite(status) ? { status: Number(status) } : {}),
+    ...(source?.phase ? { phase: String(source.phase) } : {}),
+  };
+};
+
+const createRoutineRecoveryCheckpoint = (routine, context, lastError = "") => ({
+  version: 2,
+  personaId: getCurrentPersonaId({ required: true }),
+  taskId: context.id,
+  routine: structuredClone(routine),
+  recoveryMode: routine.fatalRecoveryMode || "restart",
+  cursor: {
+    cycle: Math.max(0, Number(context.cycle || 0)),
+    stepIndex: Math.max(0, Number(context.stepIndex || 0)),
+    completedInStep: Math.max(0, Number(context.currentStepCompleted || 0)),
+  },
+  completedByStep: { ...(context.completedByStep || {}) },
+  results: serializableRoutineResults(context.results || []),
+  notices: [...(context.notices || [])],
+  packSummary: structuredClone(context.packSummary || createPackTaskSummary()),
+  storageRecoveryCount: Number(context.storageRecoveryCount || 0),
+  reloadCount: Number(context.recoveryReloadCount || 0),
+  createdAt: Number(context.recoveryCreatedAt || Date.now()),
+  updatedAt: Date.now(),
+  recoveryErrors: structuredClone(context.recoveryErrors || []),
+  solveFailureFallbackEvents: structuredClone(
+    context.solveFailureFallbackEvents || [],
+  ),
+  ...((lastError || context.recoveryErrors?.at(-1)?.reason)
+    ? { lastError: String(lastError || context.recoveryErrors.at(-1).reason) }
+    : {}),
+  ...(context.pendingOperation
+    ? { pendingOperation: structuredClone(context.pendingOperation) }
+    : {}),
+  ...(context.pendingReward
+    ? { pendingReward: structuredClone(context.pendingReward) }
+    : {}),
+});
+
+const snapshotPendingRoutineReward = (result) => ({
+  stepResult: serializableRoutineResults([result])[0],
+  options: structuredClone(result.execution.options),
+  rewardPlan: structuredClone(result.execution.rewardPlan),
+  packSummary: structuredClone(result.execution.packSummary),
+  completedRuns: Number(result.execution.completedRuns || result.completedRuns || 0),
+  storageRecoveryCount: Number(result.execution.storageRecoveryCount || 0),
+  ...(result.execution.stoppedReason
+    ? { stoppedReason: String(result.execution.stoppedReason) }
+    : {}),
+});
+
+const restorePendingRoutineRewardResult = (pending) => {
+  const execution = createSbcExecutionContext(pending.options);
+  execution.rewardPlan = structuredClone(pending.rewardPlan);
+  execution.packSummary = structuredClone(pending.packSummary);
+  execution.completedRuns = Number(pending.completedRuns || 0);
+  execution.storageRecoveryCount = Number(pending.storageRecoveryCount || 0);
+  execution.stoppedReason = pending.stoppedReason;
+  return { ...structuredClone(pending.stepResult), execution };
+};
+
+const persistRoutineRecoveryCheckpoint = (routine, context, lastError = "") => {
+  if (routine?.fatalRecoveryEnabled !== true) return undefined;
+  const checkpoint = fcxRoutineRecoveryStore.save(
+    createRoutineRecoveryCheckpoint(routine, context, lastError)
+  );
+  context.recoveryCreatedAt = checkpoint.createdAt;
+  console.info("[FCX][Routine] 恢复检查点已保存并回读", {
+    routineId: checkpoint.routine.id,
+    routineName: checkpoint.routine.name,
+    recoveryMode: checkpoint.recoveryMode,
+    reloadCount: checkpoint.reloadCount,
+    cursor: checkpoint.cursor,
+    pendingOperation: checkpoint.pendingOperation?.kind,
+    pendingReward: Boolean(checkpoint.pendingReward),
+  });
+  return checkpoint;
+};
+
+const requestRoutinePageReload = () => {
+  const pageWindow = typeof unsafeWindow !== "undefined" ? unsafeWindow : window;
+  let unloadObserved = false;
+  const markUnloading = () => { unloadObserved = true; };
+  pageWindow.addEventListener?.("beforeunload", markUnloading, { once: true });
+  pageWindow.addEventListener?.("pagehide", markUnloading, { once: true });
+  console.info("[FCX][Routine] 已调用页面刷新", {
+    pageWindow: pageWindow === window ? "userscript" : "page",
+  });
+  try {
+    pageWindow.location.reload();
+  } catch (error) {
+    console.warn("[FCX][Routine] 页面环境刷新失败，正在使用脚本环境后备", error);
+    window.location.reload();
+  }
+  setTimeout(() => {
+    if (unloadObserved) return;
+    console.warn("[FCX][Routine] 未观察到页面卸载，正在使用地址替换后备刷新");
+    window.location.replace(window.location.href);
+  }, 1500);
+};
+
+const waitForScheduledRoutineReload = async ({
+  routine,
+  context,
+  delayMs,
+  errorEvent,
+}) => {
+  context.recoveryErrors.push(structuredClone(errorEvent));
+  const checkpoint = persistRoutineRecoveryCheckpoint(
+    routine,
+    context,
+    errorEvent.reason
+  );
+  const reasonText = /[。！？.!?]$/.test(errorEvent.reason)
+    ? errorEvent.reason
+    : `${errorEvent.reason}。`;
+  const message = `流程遇到技术错误：${reasonText} ${Math.round(delayMs / 1000)}秒后自动刷新恢复（${errorEvent.reloadAttempt}/${errorEvent.maxReloads}）`;
+  reportOperationStatus("Routine", message);
+  console.warn("[FCX][Routine] 自动刷新恢复倒计时已开始", {
+    routineId: checkpoint.routine.id,
+    routineName: checkpoint.routine.name,
+    recoveryMode: checkpoint.recoveryMode,
+    stopKind: context.stopKind,
+    stopReason: context.stopReason,
+    cursor: checkpoint.cursor,
+    delayMs,
+    reloadCount: checkpoint.reloadCount,
+    error: errorEvent,
+  });
+  return waitForRoutineRecoveryCountdown(
+    delayMs,
+    () => context.cancelled || isTaskCancellationRequested()
+  );
+};
+
+const activeRoutineStepId = (context) =>
+  String(context?.routineSnapshot?.steps?.[Number(context?.stepIndex || 0)]?.id || "unknown");
+
+const beginRoutinePendingSbcSubmission = ({
+  setId,
+  challengeId,
+  beforeSetCompletions,
+  countsTowardStep,
+  submission,
+  execution,
+}) => {
+  const context = runtimeState.activeRoutineExecution;
+  if (
+    !context
+    || context.cancelled
+    || context.routineSnapshot?.fatalRecoveryEnabled !== true
+  ) return false;
+  context.pendingOperation = {
+    kind: "sbc_submit",
+    stepId: activeRoutineStepId(context),
+    setId: Number(setId),
+    challengeId: Number(challengeId),
+    beforeSetCompletions: Number(beforeSetCompletions || 0),
+    countsTowardStep:
+      Boolean(countsTowardStep)
+      && !context.isTotwFallback
+      && !context.isSolveFailureFallback,
+    startedAt: Date.now(),
+    submission: structuredClone(submission),
+    reward: {
+      options: structuredClone(execution.options),
+      rewardPlan: structuredClone(execution.rewardPlan),
+      packSummary: structuredClone(execution.packSummary),
+      completedRuns: Number(execution.completedRuns || 0),
+      storageRecoveryCount: Number(execution.storageRecoveryCount || 0),
+    },
+  };
+  persistRoutineRecoveryCheckpoint(context.routineSnapshot, context);
+  return true;
+};
+
+const completeRoutinePendingSbcSubmission = (execution) => {
+  const context = runtimeState.activeRoutineExecution;
+  const operation = context?.pendingOperation;
+  if (!context || operation?.kind !== "sbc_submit") return;
+  if (operation.countsTowardStep !== false) {
+    context.currentStepCompleted = Number(context.currentStepCompleted || 0) + 1;
+    context.completedByStep[operation.stepId] =
+      Number(context.completedByStep[operation.stepId] || 0) + 1;
+  }
+  context.pendingReward = snapshotPendingRoutineReward({
+    stepId: operation.stepId,
+    stepKind: "sbc",
+    setId: operation.setId,
+    completedRuns: Number(execution.completedRuns || 0) + 1,
+    progressUnits: 1,
+    rewardPackIds: [...(execution.rewardPlan.packIds || [])],
+    rewardPlayerPickIds: [...(execution.rewardPlan.playerPickIds || [])],
+    stopKind: "done",
+    execution,
+  });
+  context.pendingOperation = undefined;
+  try {
+    persistRoutineRecoveryCheckpoint(context.routineSnapshot, context);
+  } catch (error) {
+    console.warn("[FCX][Routine] confirmed SBC checkpoint could not be updated", error);
+  }
+};
+
+const incrementRecoveredRoutineProgress = (context, operation) => {
+  if (operation.countsTowardStep === false) return;
+  context.completedByStep[operation.stepId] =
+    Number(context.completedByStep[operation.stepId] || 0) + 1;
+  if (
+    context.routineSnapshot?.steps?.[Number(context.stepIndex || 0)]?.id
+    === operation.stepId
+  ) {
+    context.currentStepCompleted = Number(context.currentStepCompleted || 0) + 1;
+  }
+};
+
+const reconcileRoutinePendingOperation = async (routine, context) => {
+  const operation = context.pendingOperation;
+  if (!operation) return;
+  reportOperationStatus("Routine", "正在核对刷新前最后一次EA写操作");
+  const fresh = await readFreshSbcExecutionState(operation.setId, {
+      resetThrottleOnSuccess: false,
+  });
+  const freshChallenge = fresh.challenges.find(
+    (item) => Number(item?.id) === Number(operation.challengeId)
+  );
+  const applied = Number(fresh.set?.timesCompleted || 0) > operation.beforeSetCompletions
+    || String(freshChallenge?.status || "").toUpperCase() === "COMPLETED";
+  if (!applied && !freshChallenge) {
+    throw new Error("刷新后仍无法确认上一次SBC提交结果，已停止自动恢复以避免重复消耗。");
+  }
+  if (applied) {
+    const rewardExecution = createSbcExecutionContext(operation.reward.options);
+    rewardExecution.rewardPlan = structuredClone(operation.reward.rewardPlan);
+    rewardExecution.packSummary = structuredClone(operation.reward.packSummary);
+    rewardExecution.completedRuns = Number(operation.reward.completedRuns || 0) + 1;
+    rewardExecution.storageRecoveryCount = Number(operation.reward.storageRecoveryCount || 0);
+    addSbcSubmission(rewardExecution.packSummary, operation.submission);
+    context.pendingReward = snapshotPendingRoutineReward({
+      stepId: operation.stepId,
+      stepKind: "sbc",
+      setId: operation.setId,
+      completedRuns: 1,
+      progressUnits: 1,
+      rewardPackIds: [...(rewardExecution.rewardPlan.packIds || [])],
+      rewardPlayerPickIds: [...(rewardExecution.rewardPlan.playerPickIds || [])],
+      stopKind: "done",
+      execution: rewardExecution,
+    });
+    incrementRecoveredRoutineProgress(context, operation);
+    console.info("[FCX][Routine] recovered an applied SBC submission", {
+      setId: operation.setId,
+      challengeId: operation.challengeId,
+    });
+  }
+  context.pendingOperation = undefined;
+  persistRoutineRecoveryCheckpoint(routine, context);
+};
 
 const beginRoutineTask = () => {
   resetTaskCancellation();
@@ -28,6 +381,13 @@ const openRoutineRewards = async (result, context, label) => {
   }
   if (!hasPendingTrackedRewards(result.execution.rewardPlan)) {
     mergePackTaskSummary(context.packSummary, result.execution.packSummary);
+    result.execution.packSummary = createPackTaskSummary();
+    context.pendingReward = undefined;
+    try {
+      persistRoutineRecoveryCheckpoint(context.routineSnapshot, context);
+    } catch (error) {
+      console.warn("[FCX][Routine] reward-free checkpoint could not be updated", error);
+    }
     return true;
   }
   if (context.cancelled || isTaskCancellationRequested()) return false;
@@ -35,12 +395,27 @@ const openRoutineRewards = async (result, context, label) => {
   reportOperationStatus("Pack", `正在处理 ${label} 的准确奖励包`);
   const execution = result.execution;
   execution.storageRecoveryCount = Number(context.storageRecoveryCount || 0);
-  const opened = await openSbcRewardPlan(execution);
+  context.activeRewardExecution = execution;
+  let opened;
+  try {
+    opened = await openSbcRewardPlan(execution);
+  } finally {
+    context.activeRewardExecution = undefined;
+  }
   context.storageRecoveryCount = Number(execution.storageRecoveryCount || 0);
   mergePackTaskSummary(context.packSummary, execution.packSummary);
+  execution.packSummary = createPackTaskSummary();
   if (!opened) {
     context.stopKind = "pack_failed";
     context.stopReason = execution.stoppedReason || `${label} 的奖励处理失败。`;
+    context.pendingReward = snapshotPendingRoutineReward(result);
+  } else {
+    context.pendingReward = undefined;
+  }
+  try {
+    persistRoutineRecoveryCheckpoint(context.routineSnapshot, context);
+  } catch (error) {
+    console.warn("[FCX][Routine] reward checkpoint could not be updated", error);
   }
   return opened;
 };
@@ -236,11 +611,30 @@ const executeRoutineSet = async (
 
 const runTotwFallback = async (routine, context) => {
   const fallback = routine.totwFallback;
-  if (!fallback?.enabled) return false;
+  if (!fallback?.enabled) {
+    return {
+      success: false,
+      completedRuns: 0,
+      stopKind: "unavailable",
+      reason: "缺周黑自动补给未启用。",
+      failedSetId: Number(fallback?.setId || 0),
+      failedSetName: "周黑补给",
+    };
+  }
+  let completedRuns = 0;
   context.isTotwFallback = true;
   try {
     for (let index = 0; index < fallback.runs; index += 1) {
-      if (context.cancelled || isTaskCancellationRequested()) return false;
+      if (context.cancelled || isTaskCancellationRequested()) {
+        return {
+          success: false,
+          completedRuns,
+          stopKind: "cancelled",
+          reason: "用户结束了任务。",
+          failedSetId: Number(fallback.setId),
+          failedSetName: "周黑补给",
+        };
+      }
       reportOperationStatus(
         "SBC",
         `缺少周黑，正在执行补给 ${index + 1} / ${fallback.runs}`
@@ -258,25 +652,61 @@ const runTotwFallback = async (routine, context) => {
         { detectShortage: false }
       );
       if (result.completedRuns !== 1 || result.stopKind !== "done") {
-        context.stopKind = result.stopKind === "cancelled" ? "cancelled" : "invalid";
-        context.stopReason =
-          result.reason || `周黑补给 SBC ${fallback.setId} 未能完整完成。`;
-        return false;
+        return {
+          success: false,
+          completedRuns,
+          stopKind: result.stopKind || "invalid",
+          reason: result.reason || `周黑补给 SBC ${fallback.setId} 未能完整完成。`,
+          failedSetId: Number(result.setId || fallback.setId),
+          failedSetName: result.setName || `周黑补给 SBC ${fallback.setId}`,
+        };
       }
       if (!result.rewardPackIds.length && !result.rewardPlayerPickIds?.length) {
-        context.stopKind = "pack_failed";
-        context.stopReason = "周黑补给已完成，但没有读取到对应的整组奖励包。";
-        return false;
+        return {
+          success: false,
+          completedRuns: completedRuns + 1,
+          stopKind: "pack_failed",
+          reason: "周黑补给已完成，但没有读取到对应的整组奖励包。",
+          failedSetId: Number(result.setId || fallback.setId),
+          failedSetName: result.setName || `周黑补给 SBC ${fallback.setId}`,
+        };
       }
       if (!(await openRoutineRewards(result, context, "周黑补给"))) {
-        return false;
+        return {
+          success: false,
+          completedRuns: completedRuns + 1,
+          stopKind: context.stopKind || "pack_failed",
+          reason: context.stopReason || "周黑补给奖励处理失败。",
+          failedSetId: Number(result.setId || fallback.setId),
+          failedSetName: result.setName || `周黑补给 SBC ${fallback.setId}`,
+        };
       }
+      completedRuns += 1;
     }
     invalidateSbcCache();
     invalidateInventorySnapshot("club");
     invalidateInventorySnapshot("storage");
     await fetchPlayers({ force: true });
-    return true;
+    context.stopKind = undefined;
+    context.stopReason = undefined;
+    return {
+      success: true,
+      completedRuns,
+      stopKind: "done",
+      failedSetId: Number(fallback.setId),
+      failedSetName: `周黑补给 SBC ${fallback.setId}`,
+    };
+  } catch (error) {
+    const reason = String(error?.message || error || "周黑补给执行失败。");
+    console.error("[FCX][Routine] TOTW fallback failed", error);
+    return {
+      success: false,
+      completedRuns,
+      stopKind: "invalid",
+      reason,
+      failedSetId: Number(fallback.setId),
+      failedSetName: `周黑补给 SBC ${fallback.setId}`,
+    };
   } finally {
     context.isTotwFallback = false;
   }
@@ -352,6 +782,7 @@ const executeRoutineStepWithTotwFallback = async (
     return { ...result, reason: shortageReason };
   }
 
+  let lastTotwFallbackResult;
   const outcome = await runWithSpecialFallbackLoop({
     requestedRuns,
     attempt: attemptTarget,
@@ -373,24 +804,54 @@ const executeRoutineStepWithTotwFallback = async (
         fallbackRuns: Number(routine.totwFallback.runs || 1),
       });
       if (Number(routine.totwFallback.setId) === Number(step.setId)) {
-        context.stopKind = "invalid";
-        context.stopReason = "周黑补给 SBC 不能与当前目标 SBC 相同。";
+        lastTotwFallbackResult = {
+          success: false,
+          completedRuns: 0,
+          stopKind: "invalid",
+          reason: "周黑补给 SBC 不能与当前目标 SBC 相同。",
+          failedSetId: Number(routine.totwFallback.setId),
+          failedSetName: `周黑补给 SBC ${routine.totwFallback.setId}`,
+        };
         return false;
       }
-      return runTotwFallback(routine, context);
+      lastTotwFallbackResult = await runTotwFallback(routine, context);
+      return lastTotwFallbackResult.success;
     },
   });
   const result = outcome.result.value;
   const totalCompleted = outcome.totalCompletedRuns;
 
   if (outcome.replenishmentFailed) {
+    const fallbackFailure = lastTotwFallbackResult || {
+      stopKind: "invalid",
+      reason: "周黑自动补给失败。",
+      failedSetId: Number(routine.totwFallback.setId),
+      failedSetName: `周黑补给 SBC ${routine.totwFallback.setId}`,
+    };
+    const stopKind = fallbackFailure.stopKind || "invalid";
+    const reason = fallbackFailure.reason || "周黑自动补给失败。";
+    context.stopKind = stopKind;
+    context.stopReason = reason;
     return {
       ...result,
       completedRuns: totalCompleted,
       rewardPackIds: [],
       rewardPlayerPickIds: [],
-      stopKind: context.stopKind || "invalid",
-      reason: context.stopReason || "周黑自动补给失败。",
+      stopKind,
+      reason,
+      ...(stopKind === "no_solution"
+        ? {
+            solveFailure: {
+              source: "totw_fallback",
+              failedSetId: Number(fallbackFailure.failedSetId),
+              failedSetName: String(fallbackFailure.failedSetName),
+              mainStepId: String(step.id),
+              mainSetId: Number(result.setId || step.setId),
+              mainStepName: String(result.setName || `SBC ${step.setId}`),
+              reason,
+            },
+          }
+        : {}),
     };
   }
 
@@ -426,25 +887,41 @@ const runSolveFailureFallback = async (
   routine,
   context,
   failedStep,
-  failedResult
+  failedResult,
+  fallbackEvent
 ) => {
   const fallback = routine.solveFailureFallback;
   if (!fallback?.enabled) {
     return { success: false, attempted: false, completedRuns: 0 };
   }
-  if (Number(fallback.setId) === Number(failedResult.setId || failedStep.setId)) {
+  const failure = failedResult.solveFailure || {
+    source: "main_step",
+    failedSetId: Number(failedResult.setId || failedStep.setId),
+    failedSetName: String(failedResult.setName || `SBC ${failedStep.setId}`),
+    mainStepId: String(failedStep.id),
+    mainSetId: Number(failedResult.setId || failedStep.setId),
+    mainStepName: String(failedResult.setName || `SBC ${failedStep.setId}`),
+    reason: String(failedResult.reason || "当前球员范围内没有可行方案。"),
+  };
+  const conflictsWithMain = Number(fallback.setId) === Number(failure.mainSetId);
+  const conflictsWithFailure = Number(fallback.setId) === Number(failure.failedSetId);
+  if (conflictsWithMain || conflictsWithFailure) {
+    const conflictTarget = conflictsWithFailure
+      ? failure.failedSetName
+      : failure.mainStepName;
     return {
       success: false,
       attempted: false,
       completedRuns: 0,
-      reason: "求解失败补偿 SBC 不能与当前失败 SBC 相同。",
+      reason: `求解失败补偿 SBC 不能与“${conflictTarget}”相同。`,
     };
   }
 
   const requestedRuns = Number(fallback.runs) === -1
     ? -1
     : Math.min(100, Math.max(1, Number(fallback.runs || 1)));
-  const failedStepName = failedResult.setName || `SBC ${failedStep.setId}`;
+  const failedStepName = failure.mainStepName;
+  const failedTargetName = failure.failedSetName;
   let completedRuns = 0;
   let lastReason;
   context.isSolveFailureFallback = true;
@@ -459,7 +936,9 @@ const runSolveFailureFallback = async (
         : `${completedRuns + 1} / ${requestedRuns}`;
       reportOperationStatus(
         "SBC",
-        `步骤“${failedStepName}”求解无解，正在执行补偿 SBC #${fallback.setId} · ${progressLabel}`
+        failure.source === "totw_fallback"
+          ? `主步骤“${failedStepName}”的周黑补给“${failedTargetName}”无解，正在执行补偿 SBC #${fallback.setId} · ${progressLabel}`
+          : `步骤“${failedStepName}”求解无解，正在执行补偿 SBC #${fallback.setId} · ${progressLabel}`
       );
       const result = await executeRoutineSet(
         routine,
@@ -475,8 +954,12 @@ const runSolveFailureFallback = async (
       );
 
       const completedThisAttempt = Number(result.completedRuns || 0);
+      if (result.setName && fallbackEvent) {
+        fallbackEvent.fallbackSetName = String(result.setName);
+      }
       if (completedThisAttempt > 0) {
         completedRuns += completedThisAttempt;
+        if (fallbackEvent) fallbackEvent.completedRuns = completedRuns;
         const opened = await openRoutineRewards(
           result,
           context,
@@ -541,14 +1024,20 @@ const runSolveFailureFallback = async (
     }
 
     invalidateSbcCache(fallback.setId);
-    invalidateSbcCache(failedResult.setId || failedStep.setId);
+    invalidateSbcCache(failure.mainSetId);
+    if (failure.failedSetId !== failure.mainSetId) {
+      invalidateSbcCache(failure.failedSetId);
+    }
     invalidateInventorySnapshot("club");
     invalidateInventorySnapshot("storage");
     await fetchPlayers({ force: true });
+    context.stopKind = undefined;
+    context.stopReason = undefined;
     return {
       success: true,
       attempted: true,
       completedRuns,
+      fallbackSetName: fallbackEvent?.fallbackSetName,
     };
   } catch (error) {
     const reason = String(
@@ -588,6 +1077,45 @@ const executeRoutineStepWithFallback = async (
     return firstResult;
   }
 
+  const failure = firstResult.solveFailure || {
+    source: "main_step",
+    failedSetId: Number(firstResult.setId || step.setId),
+    failedSetName: String(firstResult.setName || `SBC ${step.setId}`),
+    mainStepId: String(step.id),
+    mainSetId: Number(firstResult.setId || step.setId),
+    mainStepName: String(firstResult.setName || `SBC ${step.setId}`),
+    reason: String(firstResult.reason || "当前球员范围内没有可行方案。"),
+  };
+  const fallbackEvent = {
+    occurredAt: new Date().toISOString(),
+    cycle: Math.max(0, Number(context.cycle || 0)),
+    stepIndex: Math.max(0, Number(context.stepIndex || 0)),
+    mainStepId: failure.mainStepId,
+    mainSetId: failure.mainSetId,
+    mainStepName: failure.mainStepName,
+    failureSource: failure.source,
+    failedSetId: failure.failedSetId,
+    failedSetName: failure.failedSetName,
+    failureReason: failure.reason,
+    fallbackSetId: Number(routine.solveFailureFallback.setId),
+    requestedRuns: Number(routine.solveFailureFallback.runs),
+    completedRuns: 0,
+    outcome: "started",
+  };
+  context.solveFailureFallbackEvents ||= [];
+  context.solveFailureFallbackEvents.push(fallbackEvent);
+  console.warn("[FCX][Routine] 求解失败补偿已触发", {
+    mainStepId: failure.mainStepId,
+    mainSetId: failure.mainSetId,
+    mainStepName: failure.mainStepName,
+    failureSource: failure.source,
+    failedSetId: failure.failedSetId,
+    failedSetName: failure.failedSetName,
+    reason: failure.reason,
+    fallbackSetId: Number(routine.solveFailureFallback.setId),
+    requestedRuns: Number(routine.solveFailureFallback.runs),
+  });
+
   if (
     firstResult.rewardPackIds.length
     || firstResult.rewardPlayerPickIds?.length
@@ -599,6 +1127,8 @@ const executeRoutineStepWithFallback = async (
       firstResult.setName || `SBC ${step.setId}`
     );
     if (!opened) {
+      fallbackEvent.outcome = "fallback_failed";
+      fallbackEvent.reason = context.stopReason || "原步骤奖励处理失败。";
       return {
         ...firstResult,
         rewardPackIds: [],
@@ -614,10 +1144,19 @@ const executeRoutineStepWithFallback = async (
     routine,
     context,
     step,
-    firstResult
+    firstResult,
+    fallbackEvent
   );
   const recoveryProgress = Number(recovery.completedRuns || 0);
+  fallbackEvent.completedRuns = recoveryProgress;
+  if (recovery.fallbackSetName) {
+    fallbackEvent.fallbackSetName = recovery.fallbackSetName;
+  }
   if (!recovery.success) {
+    fallbackEvent.outcome = recovery.fatal
+      ? "fallback_failed"
+      : "fallback_unavailable";
+    fallbackEvent.reason = recovery.reason || "求解失败补偿未能完成。";
     if (recovery.fatal) {
       return {
         ...firstResult,
@@ -645,6 +1184,7 @@ const executeRoutineStepWithFallback = async (
     ? -1
     : Math.max(0, Number(requestedRuns || 0) - firstCompleted);
   if (remaining === 0) {
+    fallbackEvent.outcome = "fallback_completed";
     return {
       ...firstResult,
       completedRuns: firstCompleted,
@@ -660,6 +1200,8 @@ const executeRoutineStepWithFallback = async (
     "SBC",
     `求解失败补偿已完成 ${recoveryProgress} 次，正在重试步骤“${firstResult.setName || `SBC ${step.setId}`}”`
   );
+  context.stopKind = undefined;
+  context.stopReason = undefined;
   const retryResult = await executeRoutineStepWithTotwFallback(
     routine,
     step,
@@ -667,6 +1209,26 @@ const executeRoutineStepWithFallback = async (
     context
   );
   const totalCompleted = firstCompleted + Number(retryResult.completedRuns || 0);
+  fallbackEvent.retryStopKind = retryResult.stopKind;
+  fallbackEvent.retryReason = retryResult.reason;
+  fallbackEvent.outcome = retryResult.stopKind === "done"
+    ? "retry_succeeded"
+    : retryResult.stopKind === "no_solution"
+      ? "retry_no_solution"
+      : "retry_failed";
+  fallbackEvent.reason = retryResult.stopKind === "done"
+    ? `完成补偿 ${recoveryProgress} 次后，原步骤重试成功。`
+    : retryResult.reason;
+  console.info("[FCX][Routine] 求解失败补偿结束", {
+    mainStepId: fallbackEvent.mainStepId,
+    failedSetId: fallbackEvent.failedSetId,
+    fallbackSetId: fallbackEvent.fallbackSetId,
+    fallbackSetName: fallbackEvent.fallbackSetName,
+    completedRuns: fallbackEvent.completedRuns,
+    outcome: fallbackEvent.outcome,
+    retryStopKind: fallbackEvent.retryStopKind,
+    retryReason: fallbackEvent.retryReason,
+  });
   const retryReason = retryResult.stopKind === "no_solution"
     ? `完成补偿后步骤“${retryResult.setName || firstResult.setName || `SBC ${step.setId}`}”仍无法求解：${retryResult.reason || "当前球员范围内没有可行方案。"}`
     : retryResult.reason;
@@ -798,15 +1360,19 @@ const runSbcWithTotwFallback = async ({
           fallbackRuns: Number(fallback.runs || 1),
         });
         const replenished = await runTotwFallback(routine, context);
+        if (!replenished.success) {
+          context.stopKind = replenished.stopKind || "invalid";
+          context.stopReason = replenished.reason || "周黑自动补给失败。";
+        }
         if (
-          !replenished &&
+          !replenished.success &&
           (context.cancelled || isTaskCancellationRequested()) &&
           !context.stopReason
         ) {
           context.stopKind = "cancelled";
           context.stopReason = "用户结束了任务。";
         }
-        return replenished;
+        return replenished.success;
       },
     });
     const targetExecution = outcome.result;
@@ -957,10 +1523,13 @@ const executeRoutinePackStep = async (routine, step, context) => {
       showSummary: false,
       allowPlayerPicks: true,
       onStorageFull: createStorageOverflowRecovery(packExecution),
+      summary: context.packSummary,
     }
   );
   context.storageRecoveryCount = Number(packExecution.storageRecoveryCount || 0);
-  mergePackTaskSummary(context.packSummary, result.summary);
+  if (result.summary !== context.packSummary) {
+    mergePackTaskSummary(context.packSummary, result.summary);
+  }
   const opened = Number(result.opened || 0);
   const cancelled = result.cancelled || isTaskCancellationRequested();
   return {
@@ -976,7 +1545,51 @@ const executeRoutinePackStep = async (routine, step, context) => {
   };
 };
 
-const runFcxRoutine = async (routine) => {
+const routineHasTaskResults = (summary) =>
+  summary.packsOpened > 0
+  || summary.picksCompleted > 0
+  || summary.players.length > 0
+  || summary.sbcSubmissions.length > 0;
+
+const finalizeRoutineResult = (routine, context) => {
+  if (context.stopReason && context.stopReason !== "流程已完成。") {
+    context.packSummary.stoppedReason = context.stopReason;
+  }
+  void saveTaskHistory({
+    type: "routine",
+    title: routine.name,
+    summary: context.packSummary,
+    recoveryErrors: context.recoveryErrors,
+    solveFailureFallbackEvents: context.solveFailureFallbackEvents,
+  });
+  if (routineHasTaskResults(context.packSummary)) {
+    showPackTaskSummary(context.packSummary, {
+      ignoreValue: routine.ignoreValue === true,
+    });
+    return;
+  }
+  if (!context.stopReason || context.stopReason === "流程已完成。") return;
+  const content = document.createElement("div");
+  content.className = "fcx-routine-result";
+  const reason = document.createElement("p");
+  reason.className = "fcx-pack-summary__reason";
+  reason.textContent = context.stopReason;
+  content.appendChild(reason);
+  const modal = openFcxModal({
+    id: "fcx-routine-result-modal",
+    title: "任务未完成",
+    description: "本次任务没有提交SBC、开启卡包或获得球员。",
+    content,
+  });
+  const done = document.createElement("button");
+  done.type = "button";
+  done.className = "fcx-button fcx-button--primary";
+  done.textContent = "完成";
+  done.addEventListener("click", modal.close);
+  modal.footer.appendChild(done);
+};
+
+const runFcxRoutine = async (routine, recoveryCheckpoint = undefined) => {
   if (hasBlockingFcxTask()) {
     queueFcxNotification([
       "当前FCX任务尚未结束，请稍候。",
@@ -985,12 +1598,94 @@ const runFcxRoutine = async (routine) => {
     return;
   }
   beginRoutineTask();
-  const context = createRoutineContext(routine);
+  const context = createRoutineContext(routine, recoveryCheckpoint);
+  const resumeMode = recoveryCheckpoint?.recoveryMode;
+  let startCursor = resumeMode === "resume"
+    ? { ...recoveryCheckpoint.cursor }
+    : { cycle: 0, stepIndex: 0, completedInStep: 0 };
   runtimeState.activeRoutineExecution = context;
   holdTaskOverlay();
-  queueFcxNotification([`永动机滚卡已启动：${routine.name}`, UINotificationType.POSITIVE]);
-  console.info("[FCX][Routine] started", { id: routine.id, mode: routine.mode });
+  const automaticRecoveryEnabled = routine.fatalRecoveryEnabled === true;
+  const recoveryMaxReloads = normalizeRoutineRecoveryMaxReloads(
+    routine.fatalRecoveryMaxReloads
+  );
+  let checkpointAvailable = automaticRecoveryEnabled;
+  let pageRecoveryScheduled = false;
+  if (automaticRecoveryEnabled) {
+    try {
+      persistRoutineRecoveryCheckpoint(routine, context);
+    } catch (error) {
+      checkpointAvailable = false;
+      console.warn("[FCX][Routine] recovery checkpoint unavailable", error);
+    }
+  } else {
+    fcxRoutineRecoveryStore.clear();
+  }
+  queueFcxNotification([
+    recoveryCheckpoint
+      ? `永动机已在刷新后自动恢复：${routine.name}`
+      : `永动机滚卡已启动：${routine.name}`,
+    UINotificationType.POSITIVE,
+  ]);
+  console.info("[FCX][Routine] started", {
+    id: routine.id,
+    mode: routine.mode,
+    automaticRecoveryEnabled,
+    recoveryMode: routine.fatalRecoveryMode || "restart",
+    recoveryMaxReloads,
+    resumed: Boolean(recoveryCheckpoint),
+  });
   try {
+    if (context.pendingOperation) {
+      await reconcileRoutinePendingOperation(routine, context);
+    }
+    if (resumeMode === "restart") {
+      context.cycle = 0;
+      context.stepIndex = 0;
+      context.currentStepCompleted = 0;
+      context.completedByStep = {};
+      startCursor = { cycle: 0, stepIndex: 0, completedInStep: 0 };
+      if (checkpointAvailable) persistRoutineRecoveryCheckpoint(routine, context);
+    } else if (resumeMode === "resume") {
+      startCursor = {
+        cycle: context.cycle,
+        stepIndex: context.stepIndex,
+        completedInStep: context.currentStepCompleted,
+      };
+    }
+    if (context.pendingReward) {
+      reportOperationStatus("Pack", "正在处理刷新前已确认、但尚未完成的奖励");
+      const pendingResult = restorePendingRoutineRewardResult(context.pendingReward);
+      const recovered = await openRoutineRewards(
+        pendingResult,
+        context,
+        `SBC ${pendingResult.setId}`
+      );
+      if (!recovered) {
+        context.stopKind = "pack_failed";
+        throw new Error(context.stopReason || "中断前的奖励处理恢复失败。");
+      }
+      context.pendingReward = undefined;
+      if (checkpointAvailable) persistRoutineRecoveryCheckpoint(routine, context);
+    }
+    if (resumeMode === "restart") {
+      reportOperationStatus("Routine", `正在从头重新执行：${routine.name}`);
+    } else if (resumeMode === "resume") {
+      reportOperationStatus(
+        "Routine",
+        `正在从中断处恢复：${routine.name} · 第 ${context.cycle + 1} 轮第 ${context.stepIndex + 1} 步`
+      );
+    }
+    if (recoveryCheckpoint) {
+      console.info("[FCX][Routine] 即将按检查点恢复流程", {
+        routineId: routine.id,
+        routineName: routine.name,
+        recoveryMode: resumeMode,
+        cursor: startCursor,
+        pendingOperationReconciled: !context.pendingOperation,
+        pendingRewardReconciled: !context.pendingReward,
+      });
+    }
     const schedule = await runRoutineSchedule(routine, {
       isCancelled: () =>
         context.cancelled || isTaskCancellationRequested(),
@@ -1003,8 +1698,21 @@ const runFcxRoutine = async (routine) => {
             : `正在执行第 ${cycle + 1} / ${totalCycles} 轮`
         );
       },
+      onCursorChange: (cursor) => {
+        context.cycle = cursor.cycle;
+        context.stepIndex = cursor.stepIndex;
+        context.currentStepCompleted = cursor.completedInStep;
+        if (!checkpointAvailable) return;
+        try {
+          persistRoutineRecoveryCheckpoint(routine, context);
+        } catch (error) {
+          checkpointAvailable = false;
+          console.warn("[FCX][Routine] failed to update recovery checkpoint", error);
+        }
+      },
       runStep: async (step, requestedRuns) => {
         context.stepIndex = routine.steps.findIndex((candidate) => candidate.id === step.id);
+        const completedBeforeRun = Number(context.completedByStep[step.id] || 0);
         const result = step.kind === "pack"
           ? await executeRoutinePackStep(routine, step, context)
           : await executeRoutineStepWithFallback(
@@ -1013,20 +1721,44 @@ const runFcxRoutine = async (routine) => {
               requestedRuns,
               context
             );
-        context.completedByStep[step.id] =
-          (context.completedByStep[step.id] || 0)
-          + Number(result.completedRuns || result.packsOpened || 0);
+        context.completedByStep[step.id] = Math.max(
+          Number(context.completedByStep[step.id] || 0),
+          completedBeforeRun + Number(result.completedRuns || result.packsOpened || 0)
+        );
+        context.results.push(...serializableRoutineResults([result]));
         return result;
       },
-      openRewards: async (result) =>
-        openRoutineRewards(
+      openRewards: async (result) => {
+        if (result?.execution) {
+          context.pendingReward = snapshotPendingRoutineReward(result);
+          if (checkpointAvailable) {
+            try {
+              persistRoutineRecoveryCheckpoint(routine, context);
+            } catch (error) {
+              checkpointAvailable = false;
+              console.warn("[FCX][Routine] failed to save pending reward checkpoint", error);
+            }
+          }
+        }
+        const opened = await openRoutineRewards(
           result,
           context,
           `SBC ${result.setId}`
-        ),
-    });
-    context.results = schedule.results;
-    context.notices = schedule.notices || [];
+        );
+        if (opened) context.pendingReward = undefined;
+        else if (result?.execution) context.pendingReward = snapshotPendingRoutineReward(result);
+        if (checkpointAvailable) {
+          try {
+            persistRoutineRecoveryCheckpoint(routine, context);
+          } catch (error) {
+            checkpointAvailable = false;
+            console.warn("[FCX][Routine] failed to save reward checkpoint", error);
+          }
+        }
+        return opened;
+      },
+    }, startCursor);
+    context.notices = [...new Set([...(context.notices || []), ...(schedule.notices || [])])];
     const noticeText = context.notices.join("；");
     if (noticeText && (!schedule.stoppedReason || /所有步骤均无进展/.test(schedule.stoppedReason))) {
       context.stopReason = `流程已结束，但有步骤被跳过：${noticeText}`;
@@ -1038,6 +1770,52 @@ const runFcxRoutine = async (routine) => {
     if (!context.stopReason) context.stopReason = context.notices.length
       ? "流程已结束，但有步骤未能完成。"
       : "流程已完成。";
+    const recoveryFailure = resolveRoutineRecoveryFailure({
+      results: schedule.results,
+      contextStopKind: context.stopKind,
+      contextStopReason: context.stopReason,
+      scheduleStoppedReason: schedule.stoppedReason,
+    });
+    const lastFatalResult = recoveryFailure?.result;
+    if (recoveryFailure) {
+      context.stopKind = recoveryFailure.stopKind;
+    } else {
+      // Auxiliary SBCs may leave a transient invalid marker in the shared
+      // context. A nonfatal no-solution/exhausted result must never inherit it.
+      context.stopKind = undefined;
+    }
+    if (
+      checkpointAvailable
+      && !context.cancelled
+      && !isTaskCancellationRequested()
+      && isRecoverableRoutineFailure(context.stopKind)
+      && context.recoveryReloadCount < recoveryMaxReloads
+    ) {
+      context.recoveryReloadCount += 1;
+      const delayMs = routineRecoveryDelayMs(context.recoveryReloadCount);
+      const errorEvent = createRoutineRecoveryError({
+        routine,
+        context,
+        stopKind: context.stopKind,
+        reason: recoveryFailure?.reason || context.stopReason,
+        result: lastFatalResult,
+        reloadAttempt: context.recoveryReloadCount,
+        maxReloads: recoveryMaxReloads,
+      });
+      pageRecoveryScheduled = await waitForScheduledRoutineReload({
+        routine,
+        context,
+        delayMs,
+        errorEvent,
+      });
+    }
+    if (pageRecoveryScheduled) return;
+    if (
+      isRecoverableRoutineFailure(context.stopKind)
+      && context.recoveryReloadCount >= recoveryMaxReloads
+    ) {
+      context.stopReason = `${context.stopReason} 已达到自动刷新恢复上限（${recoveryMaxReloads}次）。`;
+    }
     queueFcxNotification([
       context.cancelled || isTaskCancellationRequested()
         ? "永动机滚卡已结束。"
@@ -1052,47 +1830,224 @@ const runFcxRoutine = async (routine) => {
     context.stopKind = "invalid";
     context.stopReason = String(error?.message || error || "永动机滚卡执行失败。");
     console.error("[FCX][Routine] failed", error);
-    queueFcxNotification([context.stopReason, UINotificationType.NEGATIVE]);
+    if (
+      checkpointAvailable
+      && !context.cancelled
+      && !isTaskCancellationRequested()
+      && context.recoveryReloadCount < recoveryMaxReloads
+    ) {
+      context.recoveryReloadCount += 1;
+      const delayMs = routineRecoveryDelayMs(context.recoveryReloadCount);
+      const errorEvent = createRoutineRecoveryError({
+        routine,
+        context,
+        stopKind: context.stopKind,
+        reason: context.stopReason,
+        source: error,
+        reloadAttempt: context.recoveryReloadCount,
+        maxReloads: recoveryMaxReloads,
+      });
+      pageRecoveryScheduled = await waitForScheduledRoutineReload({
+        routine,
+        context,
+        delayMs,
+        errorEvent,
+      });
+    }
+    if (!pageRecoveryScheduled) {
+      if (context.recoveryReloadCount >= recoveryMaxReloads) {
+        context.stopReason = `${context.stopReason} 已达到自动刷新恢复上限（${recoveryMaxReloads}次）。`;
+      }
+      queueFcxNotification([context.stopReason, UINotificationType.NEGATIVE]);
+    }
   } finally {
     runtimeState.activeRoutineExecution = undefined;
     releaseTaskOverlay();
-    if (context.stopReason && context.stopReason !== "流程已完成。") {
-      context.packSummary.stoppedReason = context.stopReason;
+    if (pageRecoveryScheduled) {
+      requestRoutinePageReload();
+      return;
     }
-    void saveTaskHistory({
-      type: "routine",
-      title: routine.name,
-      summary: context.packSummary,
-    });
-    const hasTaskResults =
-      context.packSummary.packsOpened > 0
-      || context.packSummary.picksCompleted > 0
-      || context.packSummary.players.length > 0
-      || context.packSummary.sbcSubmissions.length > 0;
-    if (hasTaskResults) {
-      showPackTaskSummary(context.packSummary, {
-        ignoreValue: routine.ignoreValue === true,
-      });
-    } else if (context.stopReason && context.stopReason !== "流程已完成。") {
-      const content = document.createElement("div");
-      content.className = "fcx-routine-result";
-      const reason = document.createElement("p");
-      reason.className = "fcx-pack-summary__reason";
-      reason.textContent = context.stopReason;
-      content.appendChild(reason);
-      const modal = openFcxModal({
-        id: "fcx-routine-result-modal",
-        title: "任务未完成",
-        description: "本次任务没有提交SBC、开启卡包或获得球员。",
-        content,
-      });
-      const done = document.createElement("button");
-      done.type = "button";
-      done.className = "fcx-button fcx-button--primary";
-      done.textContent = "完成";
-      done.addEventListener("click", modal.close);
-      modal.footer.appendChild(done);
-    }
+    fcxRoutineRecoveryStore.clear();
+    finalizeRoutineResult(routine, context);
     createSBCTab();
   }
+};
+
+const routineRecoveryReadinessLabels = {
+  document: "等待网页基础结构加载",
+  services: "等待EA服务初始化",
+  user: "等待EA账号服务初始化",
+  store: "等待EA卡包仓库初始化",
+  persona: "等待EA账号身份就绪",
+  home: "等待EA自动进入首页",
+  loading: "等待EA首页加载完成",
+  task: "等待当前FCX任务结束",
+};
+
+const isVisiblePageElement = (element) => {
+  if (!element || element.nodeType !== 1 || !element.isConnected) return false;
+  const style = window.getComputedStyle(element);
+  const rendered = typeof element.getClientRects !== "function"
+    || element.getClientRects().length > 0;
+  return rendered
+    && style.display !== "none"
+    && style.visibility !== "hidden"
+    && Number(style.opacity || 1) > 0;
+};
+
+const isNativeEaHomeReady = () => {
+  if (isVisiblePageElement(runtimeState.eaHomeRoot)) return true;
+  const domHome = document.querySelector(".ut-home-hub-view");
+  if (isVisiblePageElement(domHome)) return true;
+  try {
+    const flow = getCurrentViewController();
+    const current = flow?.getCurrentController?.();
+    const controller = current?.childViewControllers?.[0] || current;
+    return typeof UTHomeHubViewController !== "undefined"
+      && controller?.constructor === UTHomeHubViewController;
+  } catch {
+    return false;
+  }
+};
+
+const isEaInitialLoaderVisible = () =>
+  [...document.querySelectorAll(".loaderIcon")].some(isVisiblePageElement);
+
+const readRecoveryPersonaId = () => {
+  try {
+    return getCurrentPersonaId({ required: true });
+  } catch {
+    return undefined;
+  }
+};
+
+const readRoutineRecoveryReadiness = (checkpoint) => evaluateRoutineRecoveryReadiness({
+  documentReadyState: document.readyState,
+  services: typeof services !== "undefined" ? services : undefined,
+  repositories: typeof repositories !== "undefined" ? repositories : undefined,
+  personaId: readRecoveryPersonaId(),
+  expectedPersonaId: checkpoint.personaId,
+  homeReady: isNativeEaHomeReady(),
+  initialLoaderVisible: isEaInitialLoaderVisible(),
+});
+
+const normalizeRecoveryCheckpointRoutine = (checkpoint) => {
+  const origin = checkpoint.routine?.origin === "builtin" ? "builtin" : "custom";
+  const routine = normalizeRoutine(checkpoint.routine, origin);
+  if (!routine || routine.id !== checkpoint.routine?.id) {
+    throw new Error("恢复检查点中的流程快照无效，未执行任何其他流程。");
+  }
+  return { ...checkpoint, routine };
+};
+
+const waitForRoutineRecoveryReadiness = async (initialCheckpoint) => {
+  let checkpoint = initialCheckpoint;
+  let lastReason;
+  while (checkpoint) {
+    const readiness = readRoutineRecoveryReadiness(checkpoint);
+    if (readiness.terminal) {
+      fcxRoutineRecoveryStore.clear();
+      throw new Error("恢复检查点属于其他EA账号，已取消本次自动恢复。");
+    }
+    const localReason = readiness.ready && hasBlockingFcxTask()
+      ? "task"
+      : readiness.reason;
+    if (localReason !== lastReason) {
+      lastReason = localReason;
+      if (localReason !== "ready") {
+        console.info("[FCX][Routine] 检测到待恢复任务，尚未访问EA业务接口", {
+          routineId: checkpoint.routine.id,
+          state: localReason,
+          message: routineRecoveryReadinessLabels[localReason],
+        });
+      }
+    }
+    if (readiness.ready && !hasBlockingFcxTask()) {
+      await delayMilliseconds(ROUTINE_RECOVERY_HOME_STABLE_MS);
+      checkpoint = fcxRoutineRecoveryStore.load();
+      if (!checkpoint) return undefined;
+      const stable = readRoutineRecoveryReadiness(checkpoint);
+      if (stable.ready && !hasBlockingFcxTask()) return checkpoint;
+    }
+    await delayMilliseconds(ROUTINE_RECOVERY_READY_POLL_MS);
+    checkpoint = fcxRoutineRecoveryStore.load();
+  }
+  return undefined;
+};
+
+let routineRecoveryBootstrapPromise;
+const resumePendingRoutineRecovery = () => {
+  if (routineRecoveryBootstrapPromise) return routineRecoveryBootstrapPromise;
+  routineRecoveryBootstrapPromise = (async () => {
+    let checkpoint;
+    try {
+      checkpoint = fcxRoutineRecoveryStore.load();
+    } catch (error) {
+      console.warn("[FCX][Routine] 无法读取恢复检查点", error);
+      return;
+    }
+    if (!checkpoint) return;
+    try {
+      checkpoint = normalizeRecoveryCheckpointRoutine(checkpoint);
+    } catch (error) {
+      fcxRoutineRecoveryStore.clear();
+      queueFcxNotification([String(error?.message || error), UINotificationType.NEGATIVE]);
+      return;
+    }
+    console.info("[FCX][Routine] 检测到恢复检查点", {
+      routineId: checkpoint.routine.id,
+      routineName: checkpoint.routine.name,
+      recoveryMode: checkpoint.recoveryMode,
+      reloadCount: checkpoint.reloadCount,
+      cursor: checkpoint.cursor,
+      pendingOperation: checkpoint.pendingOperation?.kind,
+      pendingReward: Boolean(checkpoint.pendingReward),
+    });
+
+    if (checkpoint.recoveryMode === "stop") {
+      let personaId = readRecoveryPersonaId();
+      while (!personaId) {
+        await delayMilliseconds(ROUTINE_RECOVERY_READY_POLL_MS);
+        checkpoint = fcxRoutineRecoveryStore.load();
+        if (!checkpoint) return;
+        personaId = readRecoveryPersonaId();
+      }
+      if (String(personaId) !== String(checkpoint.personaId)) {
+        fcxRoutineRecoveryStore.clear();
+        queueFcxNotification([
+          "恢复检查点属于其他EA账号，已取消本次自动恢复。",
+          UINotificationType.NEGATIVE,
+        ]);
+        return;
+      }
+      fcxRoutineRecoveryStore.clear();
+      const context = createRoutineContext(checkpoint.routine, checkpoint);
+      context.stopReason = checkpoint.lastError || "流程已按设置在刷新后停止。";
+      finalizeRoutineResult(checkpoint.routine, context);
+      queueFcxNotification(["永动机已按设置在刷新后停止。", UINotificationType.NEUTRAL]);
+      return;
+    }
+
+    try {
+      checkpoint = await waitForRoutineRecoveryReadiness(checkpoint);
+    } catch (error) {
+      console.warn("[FCX][Routine] 恢复任务就绪检查失败", error);
+      queueFcxNotification([String(error?.message || error), UINotificationType.NEGATIVE]);
+      return;
+    }
+    if (!checkpoint) return;
+    console.info("[FCX][Routine] EA首页和恢复依赖已就绪", {
+      routineId: checkpoint.routine.id,
+      routineName: checkpoint.routine.name,
+      recoveryMode: checkpoint.recoveryMode,
+      cursor: checkpoint.cursor,
+    });
+    invalidateSbcCache(undefined, { catalog: true });
+    fcxInventoryCache.invalidate(checkpoint.personaId);
+    fcxAutoSbcSessionSnapshot.invalidate();
+    await runFcxRoutine(checkpoint.routine, checkpoint);
+  })().finally(() => {
+    routineRecoveryBootstrapPromise = undefined;
+  });
+  return routineRecoveryBootstrapPromise;
 };

@@ -174,7 +174,7 @@ let solveSBC = async (
           runtimeState.conceptPlayers?.filter(
             (f) =>
               normalizedRunOptions.ignoreValue ||
-              !PriceItems[f.definitionId]?.isExtinct
+              !PriceItems[readPlayerDefinitionId(f)]?.isExtinct
           )
         );
         console.log("conceptPlayers", runtimeState.conceptPlayers, runtimeState.conceptPlayers.length);
@@ -189,11 +189,23 @@ let solveSBC = async (
     let sbcSet = executableSbc.set;
 
     // storage = storage.concat(unassigned)
+    const storageDefinitionIds = new Set(
+      storage.map((item) => readPlayerDefinitionId(item)).filter((id) => id > 0)
+    );
     players = players.filter(
-      (f) => !storage.map((m) => m.definitionId).includes(f?.definitionId)
+      (player) => !storageDefinitionIds.has(readPlayerDefinitionId(player))
     );
     players = players.concat(storage);
     players = players.filter((item) => item != undefined);
+    const unresolvedDefinitionIds = players.filter(
+      (player) => readPlayerDefinitionId(player) <= 0
+    ).length;
+    if (unresolvedDefinitionIds > 0) {
+      console.warn("[FCX][Protection] excluded players without a card definition id", {
+        count: unresolvedDefinitionIds,
+      });
+      players = players.filter((player) => readPlayerDefinitionId(player) > 0);
+    }
     const protectionSnapshot = await capturePlayerProtectionSnapshot();
     const candidateCountBeforeProtection = players.length;
     players = filterProtectedPlayers(players, {
@@ -201,6 +213,9 @@ let solveSBC = async (
       activeSquadItemIds: protectionSnapshot.activeSquadItemIds,
       protectEvolutions: protectionSnapshot.protectEvolutions,
       protectActiveSquad: protectionSnapshot.protectActiveSquad,
+      protectLockedStorageCopies:
+        protectionSnapshot.protectLockedStorageCopies,
+      storageItemIds: protectionSnapshot.storageItemIds,
     });
     const reservedItemIds = new Set(
       [...(internalOptions?.excludedItemIds || [])].map(Number)
@@ -219,6 +234,9 @@ let solveSBC = async (
       activeSquadItems: protectionSnapshot.activeSquadItemIds.size,
       protectEvolutions: protectionSnapshot.protectEvolutions,
       protectActiveSquad: protectionSnapshot.protectActiveSquad,
+      protectLockedStorageCopies:
+        protectionSnapshot.protectLockedStorageCopies,
+      storageItemIds: protectionSnapshot.storageItemIds,
     });
     reportOperationStatus(
       "SBC",
@@ -305,7 +323,7 @@ let solveSBC = async (
       marketPrice: readMarketPrice(item),
       rating: Number(item._rating ?? item.rating),
       ratingRange,
-      definitionId: item.definitionId,
+      definitionId: readPlayerDefinitionId(item),
       leagueId: item.leagueId,
       nationId: item.nationId,
       teamId: item.teamId,
@@ -314,15 +332,15 @@ let solveSBC = async (
       ),
       isSbcPlayer: Boolean(item?.isSbcPlayer),
       timeLimited: item.isTimeLimited(),
-      rewardFromSbc: Boolean(PriceItems[item.definitionId]?.isSbc),
-      rewardFromObjective: Boolean(PriceItems[item.definitionId]?.isObjective),
+      rewardFromSbc: Boolean(PriceItems[readPlayerDefinitionId(item)]?.isSbc),
+      rewardFromObjective: Boolean(PriceItems[readPlayerDefinitionId(item)]?.isObjective),
       rareflag: Number(item._rareflag ?? item.rareflag),
       tradeable: item?.isTradeable(),
       extinct: normalizedRunOptions.ignoreValue
         ? false
-        : Boolean(PriceItems[item.definitionId]?.isExtinct),
+        : Boolean(PriceItems[readPlayerDefinitionId(item)]?.isExtinct),
       storage: Boolean(item?.isStorage),
-      substitute: sbcData.subs.includes(item.definitionId),
+      substitute: sbcData.subs.includes(readPlayerDefinitionId(item)),
     });
     const candidateExclusions = {
       leagues: excludeLeagues,
@@ -392,7 +410,7 @@ let solveSBC = async (
                 ) + " ") +
             services.Localization.localize("item.raretype" + item.rareflag),
           assetId: item._metaData?.id,
-          definitionId: item.definitionId,
+          definitionId: readPlayerDefinitionId(item),
           rating: Number(item._rating ?? item.rating),
           teamId: item.teamId,
           leagueId: item.leagueId,
@@ -465,6 +483,7 @@ let solveSBC = async (
       clubPlayers: backendPlayersInput,
       sbcData: sbcData,
       maxSolveTime: getSettings(sbcId, sbcData.challengeId, "maxSolveTime"),
+      ratingOvershoot: candidateRules.squadRatingOvershoot,
     });
 
     count = getSettings(sbcId, sbcData.challengeId, "maxSolveTime");
@@ -490,7 +509,8 @@ let solveSBC = async (
       hideLoader();
       console.log("[FCX][SBC] Solver status", solveOutcome.status);
       const ratingWindow = resolveStrictSquadRatingWindow(
-        sbcData.constraints || []
+        sbcData.constraints || [],
+        candidateRules.squadRatingOvershoot,
       );
       const failureMessage =
         solveOutcome.failureCode === "RATING_OPTIMUM_NOT_PROVEN"
@@ -525,7 +545,8 @@ let solveSBC = async (
 
     const ratingValidation = validateSolverSquadRating(
       solveOutcome.players,
-      sbcData.constraints || []
+      sbcData.constraints || [],
+      candidateRules.squadRatingOvershoot,
     );
     if (ratingValidation.window) {
       const totalCost = solveOutcome.players.reduce(
@@ -621,7 +642,7 @@ let solveSBC = async (
     });
     for (const definitionId of sbcData.subs) {
       const substitute = players.find(
-        (player) => Number(player.definitionId) === Number(definitionId)
+        (player) => readPlayerDefinitionId(player) === Number(definitionId)
       );
       if (!substitute) {
         throw new Error(`替补球员 ${definitionId} 不在候选列表中`);
@@ -715,6 +736,21 @@ let solveSBC = async (
         rarityLabel: (rareflag) =>
           String(services.Localization.localize("item.raretype" + rareflag) || rareflag),
       });
+      beginRoutinePendingSbcSubmission({
+        setId: Number(sbcId),
+        challengeId: Number(sbcData.challengeId),
+        beforeSetCompletions: Number(sbcSet?.timesCompleted || 0),
+        countsTowardStep: Boolean(sbcData.finalSBC),
+        submission: {
+          setId: Number(sbcId),
+          challengeId: Number(sbcData.challengeId),
+          setName: String(sbcData.sbcName || sbcId),
+          challengeName: String(sbcData.challengeName || sbcData.challengeId),
+          submittedAt: new Date().toISOString(),
+          players: consumedPlayers,
+        },
+        execution: sbcExecution,
+      });
       try {
         await sbcSubmit(_challenge, sbcSet);
         removeSubmittedPlayersFromInventorySnapshot(_solutionSquad);
@@ -727,6 +763,7 @@ let solveSBC = async (
           players: consumedPlayers,
         });
         registerSubmittedSbcRewards(sbcExecution, submissionRewards);
+        completeRoutinePendingSbcSubmission(sbcExecution);
         sbcSubmitted = true;
       } catch (error) {
         console.error("Error submitting SBC:", error);
@@ -965,7 +1002,7 @@ const registerSubmittedSbcRewards = (execution, rewards) => {
 const confirmSetRoundCompletion = async (setId, previousTimesCompleted) => {
   let latest;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt > 0) await wait(900);
+    if (attempt > 0) await waitExactMs(900);
     latest = await readFreshSbcExecutionState(setId, { freshState: true });
     const timesCompleted = Number(latest.set?.timesCompleted || 0);
     const noUnfinishedChallenges = latest.challenges.every(
@@ -1051,6 +1088,21 @@ const submitPlannedSbcChallenge = async (
     rarityLabel: (rareflag) =>
       String(services.Localization.localize("item.raretype" + rareflag) || rareflag),
   });
+  beginRoutinePendingSbcSubmission({
+    setId: Number(setId),
+    challengeId: Number(planned.challengeId),
+    beforeSetCompletions: Number(live.set?.timesCompleted || 0),
+    countsTowardStep: Boolean(includeSetRewards),
+    submission: {
+      setId: Number(setId),
+      challengeId: Number(planned.challengeId),
+      setName: String(live.set?.name || planned.payload?.setName || setId),
+      challengeName: String(planned.name || planned.challengeId),
+      submittedAt: new Date().toISOString(),
+      players: consumedPlayers,
+    },
+    execution,
+  });
   await sbcSubmit(controller._challenge, live.set);
   removeSubmittedPlayersFromInventorySnapshot(planned.payload.solutionSquad);
   addSbcSubmission(execution.packSummary, {
@@ -1062,6 +1114,7 @@ const submitPlannedSbcChallenge = async (
     players: consumedPlayers,
   });
   registerSubmittedSbcRewards(execution, rewards);
+  completeRoutinePendingSbcSubmission(execution);
   execution.submittedChallengeIds.add(planned.challengeId);
   invalidateSbcCache(setId);
   return { challengeId: planned.challengeId, submitted: true };
@@ -1094,7 +1147,7 @@ const waitForSbcRewardSelections = async (rewardPlan) => {
       0
     );
     if (pendingCount === 0 || selectedCount >= pendingCount) return selections;
-    if (attempt < 7) await wait(1500);
+    if (attempt < 7) await waitExactMs(1500);
   }
   return [];
 };
@@ -1143,9 +1196,12 @@ const openSbcRewardPlan = async (execution) => {
           internal: true,
           allowPlayerPicks: true,
           onStorageFull,
+          summary: execution.packSummary,
         }
       );
-      mergePackTaskSummary(execution.packSummary, recoveryPacks.summary);
+      if (recoveryPacks.summary !== execution.packSummary) {
+        mergePackTaskSummary(execution.packSummary, recoveryPacks.summary);
+      }
       if (recoveryPacks.stopped || recoveryPacks.cancelled) {
         execution.stoppedReason =
           recoveryPacks.reason || "清仓奖励处理未完成。";
@@ -1203,9 +1259,12 @@ const openSbcRewardPlan = async (execution) => {
       internal: true,
       allowPlayerPicks: true,
       onStorageFull,
+      summary: execution.packSummary,
     }
   );
-  mergePackTaskSummary(execution.packSummary, result.summary);
+  if (result.summary !== execution.packSummary) {
+    mergePackTaskSummary(execution.packSummary, result.summary);
+  }
   if (result.stopped || result.cancelled) {
     execution.stoppedReason =
       result.reason || "奖励包处理未完成，SBC任务已停止。";

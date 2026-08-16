@@ -8,6 +8,7 @@ import type {
 const DEFAULT_SETTINGS: Readonly<PlayerProtectionSettings> = {
   protectEvolutions: true,
   protectActiveSquad: true,
+  protectLockedStorageCopies: true,
 };
 
 function normalizePersonaId(personaId: string | number): string {
@@ -42,6 +43,7 @@ export class PlayerProtectionStore {
     this.getDocument().settings = {
       protectEvolutions: settings.protectEvolutions !== false,
       protectActiveSquad: settings.protectActiveSquad !== false,
+      protectLockedStorageCopies: settings.protectLockedStorageCopies !== false,
     };
     this.persist();
   }
@@ -88,6 +90,8 @@ export class PlayerProtectionStore {
         settings: {
           protectEvolutions: parsed.settings?.protectEvolutions !== false,
           protectActiveSquad: parsed.settings?.protectActiveSquad !== false,
+          protectLockedStorageCopies:
+            parsed.settings?.protectLockedStorageCopies !== false,
         },
         lockedPlayers:
           parsed.lockedPlayers && typeof parsed.lockedPlayers === "object"

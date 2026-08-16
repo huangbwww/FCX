@@ -35,6 +35,19 @@ describe("strict SBC squad rating window", () => {
     expect(formatSquadRatingWindow(window!)).toBe("83.00–83.80");
   });
 
+  it.each([
+    [0, 83],
+    [0.1, 83.1],
+    [0.8, 83.8],
+    [2, 85],
+    [5, 88],
+  ])("uses a configurable %s overshoot", (overshoot, maximum) => {
+    expect(resolveStrictSquadRatingWindow([teamRating(83)], overshoot)).toEqual({
+      minimum: 83,
+      maximum,
+    });
+  });
+
   it.each([80, 82, 83, 84, 86, 88, 90])(
     "builds a dynamic %i.00-%i.80 window without a hard-coded target",
     (target) => {
@@ -98,6 +111,9 @@ describe("strict SBC squad rating window", () => {
       ok: true,
       rating: 83,
     });
+    expect(
+      validateSolverSquadRating(players(Array(11).fill(85)), [teamRating(83)], 2),
+    ).toMatchObject({ ok: true, rating: 85, window: { minimum: 83, maximum: 85 } });
   });
 
   it("does not add a strict minimum window to a maximum-only requirement", () => {

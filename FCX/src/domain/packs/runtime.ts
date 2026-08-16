@@ -115,6 +115,8 @@ const showPackTaskSummary = (summary, options = {}) => {
 const waitExactMs = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, Math.max(0, milliseconds)));
 
+const PACK_OPEN_SUCCESS_INTERVAL_MS = 800;
+
 const invokePlayerPickOperation = async (factory, timeoutMs = 0, requestOptions = {}) => {
   const startedAt = Date.now();
   try {
@@ -507,22 +509,27 @@ const runAutomaticPlayerPicks = async ({
 
   const pending = await requestPendingPlayerPick();
   if (pending.payload) {
-    const tracking = resolvePendingPlayerPickTracking(rewardPlan);
-    const pendingResult = await confirmAutomaticPlayerPick({
-      payload: pending.payload,
-      options,
-      taskSummary,
-      source: tracking?.label || "未分配球员挑选",
-      taskId,
-      pickSequence: confirmedPicks + 1,
-    });
-    if (!pendingResult.success) {
+    if (!options.autoPick) {
       stopped = true;
-      reason = pendingResult.reason;
+      reason = "检测到球员挑选；自动球员挑选已关闭，已停在未分配页面。";
     } else {
-      confirmedPicks += 1;
-      selected += pendingResult.selected;
-      completePlayerPickTracking(rewardPlan, tracking);
+      const tracking = resolvePendingPlayerPickTracking(rewardPlan);
+      const pendingResult = await confirmAutomaticPlayerPick({
+        payload: pending.payload,
+        options,
+        taskSummary,
+        source: tracking?.label || "未分配球员挑选",
+        taskId,
+        pickSequence: confirmedPicks + 1,
+      });
+      if (!pendingResult.success) {
+        stopped = true;
+        reason = pendingResult.reason;
+      } else {
+        confirmedPicks += 1;
+        selected += pendingResult.selected;
+        completePlayerPickTracking(rewardPlan, tracking);
+      }
     }
   } else if (!pending.ok) {
     console.warn("[FCX][Pick] 待读取失败，继续检查未分配物品", {
@@ -795,12 +802,16 @@ const processTrackedSbcPlayerPicks = async (execution, options) => {
 const processPackItems = async (
   options,
   taskSummary,
-  { allowPlayerPicks = true } = {}
+  { allowPlayerPicks = true, pendingPlayerPickDetected = false } = {}
 ) => {
   let aggregate = emptyRoutingResult();
   const initial = await routeUnassignedItems(options, taskSummary);
   aggregate = mergeRoutingResult(aggregate, initial);
-  if (initial.stopped || !initial.playerPicks || !allowPlayerPicks) {
+  if (
+    initial.stopped
+    || (!initial.playerPicks && !pendingPlayerPickDetected)
+    || !allowPlayerPicks
+  ) {
     return { routing: aggregate, selected: 0 };
   }
 
@@ -836,54 +847,9 @@ const processOpenedPackItems = async (pack, packPlayers, options, taskSummary) =
 };
 
 const packInventoryKeyMatches = (candidate, pack) =>
-  Number(candidate?.id) === Number(pack?.id)
+  Boolean(candidate?.isMyPack)
+  && Number(candidate?.id) === Number(pack?.id)
   && Boolean(candidate?.tradeable) === Boolean(pack?.tradeable);
-
-const readPackInventoryCount = async (pack) => {
-  const response = await getPacks();
-  if (!Array.isArray(response?.packs)) {
-    throw new Error("EA未返回可核验的卡包库存");
-  }
-  return response.packs.filter((candidate) => packInventoryKeyMatches(candidate, pack)).length;
-};
-
-const readKnownPackInventoryCount = (pack) => {
-  const candidates = pack?.isMyPack
-    ? readNativeOwnedPacks().packs
-    : nativePackLastPacks;
-  const count = candidates.filter((candidate) => packInventoryKeyMatches(candidate, pack)).length;
-  return Math.max(pack ? 1 : 0, count);
-};
-
-const verifyOpenedPack = async (pack, beforeCount) => {
-  try {
-    const afterCount = await readPackInventoryCount(pack);
-    if (afterCount < beforeCount) {
-      const items = await fetchUnassigned();
-      return {
-        state: "applied",
-        value: { success: true, status: 200, response: { items } },
-      };
-    }
-    if (afterCount === beforeCount) return { state: "not_applied" };
-    return { state: "unknown", reason: "卡包库存发生异常变化，为避免重复开包未自动重试" };
-  } catch (error) {
-    return { state: "unknown", reason: `开包结果核验失败：${error?.message || error}` };
-  }
-};
-
-const verifyPurchasedPack = async (pack, beforeCount) => {
-  try {
-    const afterCount = await readPackInventoryCount(pack);
-    if (afterCount > beforeCount) {
-      return { state: "applied", value: { success: true, status: 200, response: {} } };
-    }
-    if (afterCount === beforeCount) return { state: "not_applied" };
-    return { state: "unknown", reason: "购买后的卡包库存无法确认，为避免重复扣费未自动重试" };
-  } catch (error) {
-    return { state: "unknown", reason: `购买结果核验失败：${error?.message || error}` };
-  }
-};
 
 const openPackWithUnassignedRecovery = async (
   pack,
@@ -893,13 +859,19 @@ const openPackWithUnassignedRecovery = async (
   allowPlayerPicks
 ) => {
   const openOnce = (requestLabel) => {
-    const beforeCount = readKnownPackInventoryCount(pack);
+    console.info("[FCX][Pack] 正在发送开包写请求", {
+      packId: Number(pack?.id || pack?.packId || 0),
+      tradable: Boolean(pack?.tradeable),
+      label: requestLabel,
+    });
     return executeFcxEaRequest(
       () => pack.open(),
       requestLabel,
       {
         scope: "Pack",
-        verifyAfterFailure: () => verifyOpenedPack(pack, beforeCount),
+        maxAttempts: 1,
+        retryThrottle: false,
+        retryUnauthorized: false,
       }
     );
   };
@@ -933,6 +905,7 @@ const openPackInstance = async (
 ) => {
   repositories.Store.setDirty();
   let response;
+  let openedPack = pack;
   if (pack.isMyPack) {
     response = await openPackWithUnassignedRecovery(
       pack,
@@ -942,20 +915,31 @@ const openPackInstance = async (
       allowPlayerPicks
     );
   } else {
-    const beforePurchaseCount = readKnownPackInventoryCount(pack);
     const purchaseResponse = await executeFcxEaRequest(
       () => pack.purchase(GameCurrency.COINS),
       "购买卡包",
       {
         scope: "Pack",
-        verifyAfterFailure: () => verifyPurchasedPack(pack, beforePurchaseCount),
+        maxAttempts: 1,
+        retryThrottle: false,
+        retryUnauthorized: false,
       }
     );
     if (purchaseResponse?.response?.items) {
       response = purchaseResponse;
     } else {
+      const purchasedInventory = await getPacks({
+        label: "读取已购买卡包",
+      });
+      const ownedMatches = (purchasedInventory?.packs || []).filter(
+        (candidate) => packInventoryKeyMatches(candidate, pack)
+      );
+      openedPack = ownedMatches[0];
+      if (!openedPack) {
+        throw new Error("购买请求已完成，但没有找到可打开的已购卡包。");
+      }
       response = await openPackWithUnassignedRecovery(
-        pack,
+        openedPack,
         options,
         taskSummary,
         "打开已购买卡包",
@@ -963,12 +947,14 @@ const openPackInstance = async (
       );
     }
   }
-  return processOpenedPackItems(pack, response?.response, options, taskSummary);
+  const packPlayers = await processOpenedPackItems(openedPack, response?.response, options, taskSummary);
+  return {
+    packPlayers,
+    pendingPlayerPick: false,
+  };
 };
 
 const expandPackWorkQueue = expandPackSelections;
-
-const MAX_STORAGE_RECOVERY_ROUNDS = 10;
 
 const readStorageCapacitySnapshot = async () => {
   const items = await getStoragePlayers();
@@ -994,251 +980,290 @@ const createStorageOverflowRecovery = (execution) => {
     options,
     taskSummary,
   }) => {
-  const config = resolveExecutionStorageFallback(execution);
-  if (!config?.enabled) {
-    return {
-      success: false,
-      reason:
-        routing?.reason
-        || "SBC仓库已满；未启用自动清仓，任务已安全停止。",
-    };
-  }
-  if (!Number(config.setId)) {
-    return {
-      success: false,
-      reason: "自动清仓配置无效，请重新选择清仓 SBC。",
-    };
-  }
-  if (isTaskCancellationRequested()) {
-    return { success: false, reason: "用户结束了任务。" };
-  }
-  const nextRecovery = nextStorageRecoveryRound(
-    execution.storageRecoveryCount,
-    MAX_STORAGE_RECOVERY_ROUNDS
-  );
-  if (!nextRecovery.allowed) {
-    return {
-      success: false,
-      reason: `已达到 ${MAX_STORAGE_RECOVERY_ROUNDS} 轮自动清仓上限，任务已安全停止。`,
-    };
-  }
-
-  const catalog = await refreshSbcCache();
-  const cleanupSet = catalog?.sets?.find(
-    (candidate) => Number(candidate.id) === Number(config.setId)
-  );
-  if (!cleanupSet) {
-    return {
-      success: false,
-      reason: "选择的清仓 SBC 当前不可用或已经过期。",
-    };
-  }
-  const repeatability = getSbcRepeatability(cleanupSet);
-  const cleanupMode = String(cleanupSet.repeatabilityMode || "").toUpperCase();
-  console.info("[FCX][Pack] storage cleanup availability", {
-    setId: Number(config.setId),
-    repeatabilityMode: String(cleanupSet.repeatabilityMode || ""),
-    timesCompleted: Number(cleanupSet.timesCompleted || 0),
-    repeatability,
-    configuredRuns: Number(config.runs || 1),
-  });
-  if (
-    cleanupMode === "NON_REPEATABLE"
-    && Number(cleanupSet.timesCompleted || 0) > 0
-  ) {
-    return {
-      success: false,
-      reason: `${cleanupSet.name} 的可用次数已经耗尽。`,
-    };
-  }
-  const rawConfiguredRuns = Math.trunc(Number(config.runs));
-  const configuredRuns = rawConfiguredRuns === -1
-    ? -1
-    : Math.min(100, Math.max(1, rawConfiguredRuns || 1));
-  const cleanupRuns = repeatability.kind === "finite"
-    ? configuredRuns === -1
-      ? Math.max(1, repeatability.remaining)
-      : Math.min(configuredRuns, Math.max(1, repeatability.remaining))
-    : repeatability.kind === "unknown"
-      ? 1
-      : configuredRuns;
-  if (cleanupRuns !== -1 && cleanupRuns <= 0) {
-    return {
-      success: false,
-      reason: `${cleanupSet.name} 当前没有可执行次数。`,
-    };
-  }
-
-  execution.storageRecoveryCount = nextRecovery.next;
-  const recoveryRound = nextRecovery.next;
-  const cleanupRunsLabel = cleanupRuns === -1
-    ? "持续执行"
-    : `${cleanupRuns} 次`;
-  reportOperationStatus(
-    "Pack",
-    `SBC仓库已满，正在执行第 ${recoveryRound} / ${MAX_STORAGE_RECOVERY_ROUNDS} 轮清仓 · ${cleanupSet.name} · ${cleanupRunsLabel}`
-  );
-  const before = await readStorageCapacitySnapshot();
-  const cleanupOptions = {
-    ...execution.options,
-    ignoreValue: execution.options.ignoreValue === true,
-    requestedRuns: cleanupRuns,
-    deferRewards: true,
-    deferSummary: true,
-    detectSpecialShortage: false,
-    autoOpenRewards: false,
-    storageFallback: { enabled: false, setId: 0, runs: 1 },
-  };
-  const cleanupExecution = createSbcExecutionContext(cleanupOptions);
-  let cleanupSummaryMerged = false;
-  const mergeCleanupSummary = () => {
-    if (cleanupSummaryMerged) return;
-    cleanupSummaryMerged = true;
-    mergePackTaskSummary(taskSummary, cleanupExecution.packSummary);
-  };
-  const previousExecution = runtimeState.activeSbcExecution;
-  let cleanupResult;
-  try {
-    cleanupResult = await solveSbcSet(
-      Number(config.setId),
-      true,
-      false,
-      cleanupOptions,
-      cleanupExecution,
-      { suppressFinalUi: true }
-    );
-  } finally {
-    runtimeState.activeSbcExecution = previousExecution;
-  }
-  const completedCleanupRuns = Number(cleanupResult?.completedRuns || 0);
-  const completedConfiguredRuns = cleanupRuns === -1
-    ? completedCleanupRuns > 0
-    : completedCleanupRuns === cleanupRuns;
-  if (isTaskCancellationRequested() || completedCleanupRuns <= 0) {
-    mergeCleanupSummary();
-    return {
-      success: false,
-      reason:
-        cleanupExecution.stoppedReason
-        || `${cleanupSet.name} 未能完整完成${cleanupRuns === -1 ? "持续执行任务" : ` ${cleanupRuns} 次`}，自动清仓已停止。`,
-    };
-  }
-  if (!completedConfiguredRuns) {
-    console.warn("[FCX][Pack] storage cleanup completed partially", {
-      setId: Number(config.setId),
-      requestedRuns: cleanupRuns,
-      completedRuns: completedCleanupRuns,
-      stoppedReason: cleanupExecution.stoppedReason,
-    });
-    reportOperationStatus(
-      "Pack",
-      `清仓计划执行 ${cleanupRuns} 次，实际完成 ${completedCleanupRuns} 次；正在检查是否已释放仓库位置`
-    );
-  }
-
-  invalidateSbcCache(config.setId);
-  await fetchPlayers();
-  const after = await readStorageCapacitySnapshot();
-  console.info("[FCX][Pack] storage cleanup progress", {
-    recoveryRound,
-    setId: Number(config.setId),
-    requestedRuns: cleanupRuns,
-    completedRuns: completedCleanupRuns,
-    before,
-    after,
-  });
-  if (!storageProgressMade(before, after)) {
-    mergeCleanupSummary();
-    return {
-      success: false,
-      reason: "清仓 SBC 未释放仓库位置，任务已安全停止。",
-    };
-  }
-
-  reportOperationStatus("Pack", "清仓已释放位置，正在安置未分配物品");
-  const rerouted = await routeUnassignedItems(options, taskSummary);
-  if (rerouted.stopped || rerouted.remaining > 0) {
-    mergeCleanupSummary();
-    return {
-      success: false,
-      routing: rerouted,
-      reason:
-        rerouted.reason
-        || "清仓后仍有物品无法分配，任务已安全停止。",
-    };
-  }
-
-  let finalRouting = rerouted;
-  let nestedSelections = [];
-  if (!(await processTrackedSbcPlayerPicks(cleanupExecution, options))) {
-    const pickRouting = cleanupExecution.lastUnassignedRouting;
-    if (pickRouting?.stopCode === "storage_full") {
-      mergeCleanupSummary();
-      const nested = await recover({
-        phase: "cleanup_player_pick",
-        routing: pickRouting,
-        options,
-        taskSummary,
-      });
-      if (!nested?.success) return nested;
-      finalRouting = nested.routing || rerouted;
-      nestedSelections = nested.selections || [];
-    } else {
-      mergeCleanupSummary();
+    const config = resolveExecutionStorageFallback(execution);
+    if (!config?.enabled) {
       return {
         success: false,
-        routing: pickRouting || rerouted,
         reason:
-          cleanupExecution.stoppedReason
-          || "清仓 SBC 的球员挑选奖励处理失败。",
+          routing?.reason
+          || "SBC仓库已满；未启用自动清仓，任务已安全停止。",
       };
     }
-  }
+    if (!Number(config.setId)) {
+      return {
+        success: false,
+        reason: "自动清仓配置无效，请重新选择清仓 SBC。",
+      };
+    }
 
-  const selections = Object.keys(cleanupExecution.rewardPlan.expectedById).length
-    ? await waitForSbcRewardSelections(cleanupExecution.rewardPlan)
-    : [];
-  const pendingPacks = Object.entries(
-    cleanupExecution.rewardPlan.expectedById
-  ).some(([rawId, expected]) => {
-    const id = Number(rawId);
-    const processed = Object.entries(
-      cleanupExecution.rewardPlan.processedPackByKey
-    )
-      .filter(([key]) => Number(key.split(":", 1)[0]) === id)
-      .reduce((sum, [, count]) => sum + Number(count || 0), 0);
-    return processed < Number(expected);
-  });
-  if (pendingPacks && !selections.length) {
-    mergeCleanupSummary();
+    let currentRouting = routing || emptyRoutingResult();
+    const rewardSelections = [];
+    let latestRewardPlan;
+
+    while (currentRouting?.stopCode === "storage_full") {
+      if (isTaskCancellationRequested()) {
+        return { success: false, routing: currentRouting, reason: "用户结束了任务。" };
+      }
+
+      const catalog = await refreshSbcCache();
+      const cleanupSet = catalog?.sets?.find(
+        (candidate) => Number(candidate.id) === Number(config.setId)
+      );
+      if (!cleanupSet) {
+        return {
+          success: false,
+          routing: currentRouting,
+          reason: "选择的清仓 SBC 当前不可用或已经过期。",
+        };
+      }
+
+      const repeatability = getSbcRepeatability(cleanupSet);
+      const cleanupMode = String(cleanupSet.repeatabilityMode || "").toUpperCase();
+      console.info("[FCX][Pack] storage cleanup availability", {
+        setId: Number(config.setId),
+        repeatabilityMode: String(cleanupSet.repeatabilityMode || ""),
+        timesCompleted: Number(cleanupSet.timesCompleted || 0),
+        repeatability,
+        configuredRuns: Number(config.runs || 1),
+      });
+      if (
+        cleanupMode === "NON_REPEATABLE"
+        && Number(cleanupSet.timesCompleted || 0) > 0
+      ) {
+        return {
+          success: false,
+          routing: currentRouting,
+          reason: `${cleanupSet.name} 的可用次数已经耗尽。`,
+        };
+      }
+      if (repeatability.kind === "finite" && repeatability.remaining <= 0) {
+        return {
+          success: false,
+          routing: currentRouting,
+          reason: `${cleanupSet.name} 当前没有可执行次数。`,
+        };
+      }
+
+      const rawConfiguredRuns = Math.trunc(Number(config.runs));
+      const configuredRuns = rawConfiguredRuns === -1
+        ? -1
+        : Math.min(100, Math.max(1, rawConfiguredRuns || 1));
+      const cleanupRuns = repeatability.kind === "finite"
+        ? configuredRuns === -1
+          ? repeatability.remaining
+          : Math.min(configuredRuns, repeatability.remaining)
+        : repeatability.kind === "unknown"
+          ? 1
+          : configuredRuns;
+      if (cleanupRuns !== -1 && cleanupRuns <= 0) {
+        return {
+          success: false,
+          routing: currentRouting,
+          reason: `${cleanupSet.name} 当前没有可执行次数。`,
+        };
+      }
+
+      execution.storageRecoveryCount = incrementStorageRecoveryCount(
+        execution.storageRecoveryCount
+      );
+      const recoveryRound = execution.storageRecoveryCount;
+      const cleanupRunsLabel = cleanupRuns === -1
+        ? "持续执行"
+        : `${cleanupRuns} 次`;
+      reportOperationStatus(
+        "Pack",
+        `SBC仓库已满，正在执行第 ${recoveryRound} 轮清仓 · ${cleanupSet.name} · ${cleanupRunsLabel}`
+      );
+
+      const before = await readStorageCapacitySnapshot();
+      const cleanupOptions = {
+        ...execution.options,
+        ignoreValue: execution.options.ignoreValue === true,
+        requestedRuns: cleanupRuns,
+        deferRewards: true,
+        deferSummary: true,
+        detectSpecialShortage: false,
+        autoOpenRewards: false,
+        storageFallback: { enabled: false, setId: 0, runs: 1 },
+      };
+      const cleanupExecution = createSbcExecutionContext(cleanupOptions);
+      let cleanupSummaryMerged = false;
+      const mergeCleanupSummary = () => {
+        if (cleanupSummaryMerged) return;
+        cleanupSummaryMerged = true;
+        mergePackTaskSummary(taskSummary, cleanupExecution.packSummary);
+      };
+      const previousExecution = runtimeState.activeSbcExecution;
+      let cleanupResult;
+      try {
+        cleanupResult = await solveSbcSet(
+          Number(config.setId),
+          true,
+          false,
+          cleanupOptions,
+          cleanupExecution,
+          { suppressFinalUi: true }
+        );
+      } finally {
+        runtimeState.activeSbcExecution = previousExecution;
+      }
+
+      const completedCleanupRuns = Number(cleanupResult?.completedRuns || 0);
+      const completedConfiguredRuns = cleanupRuns === -1
+        ? completedCleanupRuns > 0
+        : completedCleanupRuns === cleanupRuns;
+      if (isTaskCancellationRequested() || completedCleanupRuns <= 0) {
+        mergeCleanupSummary();
+        return {
+          success: false,
+          routing: currentRouting,
+          reason:
+            cleanupExecution.stoppedReason
+            || `${cleanupSet.name} 未能完整完成${cleanupRuns === -1 ? "持续执行任务" : ` ${cleanupRuns} 次`}，自动清仓已停止。`,
+        };
+      }
+      if (!completedConfiguredRuns) {
+        console.warn("[FCX][Pack] storage cleanup completed partially", {
+          recoveryRound,
+          setId: Number(config.setId),
+          requestedRuns: cleanupRuns,
+          completedRuns: completedCleanupRuns,
+          stoppedReason: cleanupExecution.stoppedReason,
+        });
+        reportOperationStatus(
+          "Pack",
+          `清仓计划执行 ${cleanupRuns} 次，实际完成 ${completedCleanupRuns} 次；正在检查是否已释放仓库位置`
+        );
+      }
+
+      invalidateSbcCache(config.setId);
+      await fetchPlayers();
+      const after = await readStorageCapacitySnapshot();
+      console.info("[FCX][Pack] storage cleanup progress", {
+        recoveryRound,
+        setId: Number(config.setId),
+        requestedRuns: cleanupRuns,
+        completedRuns: completedCleanupRuns,
+        before,
+        after,
+      });
+      if (!storageProgressMade(before, after)) {
+        mergeCleanupSummary();
+        return {
+          success: false,
+          routing: currentRouting,
+          reason: "清仓 SBC 未释放仓库位置，任务已安全停止。",
+        };
+      }
+
+      latestRewardPlan = cleanupExecution.rewardPlan;
+      const picksHandled = await processTrackedSbcPlayerPicks(
+        cleanupExecution,
+        options
+      );
+      if (!picksHandled) {
+        const pickRouting = cleanupExecution.lastUnassignedRouting;
+        if (pickRouting?.stopCode !== "storage_full") {
+          mergeCleanupSummary();
+          return {
+            success: false,
+            routing: pickRouting || currentRouting,
+            reason:
+              options.autoPick === false
+                ? "清仓SBC产生球员挑选，但自动挑选已关闭，请手动处理。"
+                : cleanupExecution.stoppedReason
+                  || "清仓 SBC 的球员挑选奖励处理失败。",
+          };
+        }
+      }
+
+      const selections = Object.keys(cleanupExecution.rewardPlan.expectedById).length
+        ? await waitForSbcRewardSelections(cleanupExecution.rewardPlan)
+        : [];
+      const pendingPacks = Object.entries(
+        cleanupExecution.rewardPlan.expectedById
+      ).some(([rawId, expected]) => {
+        const id = Number(rawId);
+        const processed = Object.entries(
+          cleanupExecution.rewardPlan.processedPackByKey
+        )
+          .filter(([key]) => Number(key.split(":", 1)[0]) === id)
+          .reduce((sum, [, count]) => sum + Number(count || 0), 0);
+        return processed < Number(expected);
+      });
+      if (pendingPacks && !selections.length) {
+        mergeCleanupSummary();
+        return {
+          success: false,
+          routing: cleanupExecution.lastUnassignedRouting || currentRouting,
+          reason: "清仓 SBC 已完成，但奖励卡包尚未到账。",
+        };
+      }
+      rewardSelections.push(
+        ...selections.map((selection) => ({
+          ...selection,
+          rewardPlan: cleanupExecution.rewardPlan,
+        }))
+      );
+      mergeCleanupSummary();
+
+      reportOperationStatus("Pack", "清仓已释放位置，正在安置未分配物品");
+      const rerouted = await routeUnassignedItems(options, taskSummary);
+      console.info("[FCX][Pack] storage cleanup routing", {
+        recoveryRound,
+        setId: Number(config.setId),
+        remaining: Number(rerouted.remaining || 0),
+        stopCode: rerouted.stopCode,
+        stopped: Boolean(rerouted.stopped),
+        reason: rerouted.reason,
+      });
+      currentRouting = rerouted;
+      if (!rerouted.stopped && rerouted.remaining <= 0) {
+        reportOperationStatus(
+          "Pack",
+          rewardSelections.length
+            ? "未分配物品已安置，接下来立即开启清仓奖励"
+            : "未分配物品已安置，正在继续原任务",
+          "success"
+        );
+        return {
+          success: true,
+          routing: rerouted,
+          selections: rewardSelections,
+          rewardPlan: latestRewardPlan,
+        };
+      }
+      if (rerouted.stopCode !== "storage_full") {
+        return {
+          success: false,
+          routing: rerouted,
+          reason:
+            rerouted.reason
+            || "清仓后仍有物品无法分配，任务已安全停止。",
+        };
+      }
+      reportOperationStatus(
+        "Pack",
+        `第 ${recoveryRound} 轮清仓已释放位置，但仍有不可交易重复球员未安置，正在继续清仓`
+      );
+    }
+
     return {
       success: false,
-      routing: rerouted,
-      reason: "清仓 SBC 已完成，但奖励卡包尚未到账。",
+      routing: currentRouting,
+      reason: currentRouting?.reason || "当前未分配物品不属于SBC仓库爆仓。",
     };
-  }
-  mergeCleanupSummary();
-  reportOperationStatus(
-    "Pack",
-    selections.length
-      ? "未分配物品已安置，接下来立即开启清仓奖励"
-      : "未分配物品已安置，正在继续原任务",
-    "success"
-  );
-  return {
-    success: true,
-    routing: finalRouting,
-    selections: [
-      ...nestedSelections,
-      ...selections.map((selection) => ({
-        ...selection,
-        rewardPlan: cleanupExecution.rewardPlan,
-      })),
-    ],
-    rewardPlan: cleanupExecution.rewardPlan,
-  };
   };
   return recover;
+};
+
+const formatPackOpenFailure = (packName, error) => {
+  const status = Number(eaResponseStatus(error) || 0);
+  const target = packName || "当前卡包";
+  if (status > 0) {
+    return `开启“${target}”失败：EA返回${status}。为避免重复开包，本次未自动重试。`;
+  }
+  return `开启“${target}”失败：${error?.message || error || "未知错误"}。为避免重复开包，本次未自动重试。`;
 };
 
 const runPackSelections = async (
@@ -1247,7 +1272,7 @@ const runPackSelections = async (
   onProgress = undefined,
   taskOptions = {}
 ) => {
-  const taskSummary = createPackTaskSummary();
+  const taskSummary = taskOptions.summary || createPackTaskSummary();
   if (runtimeState.packRunActive) {
     return {
       opened: 0,
@@ -1350,14 +1375,23 @@ const runPackSelections = async (
       }
       const work = queue[cursor];
       const currentPacks = await getPacks();
-      const pack = currentPacks.packs.find(
+      const matchingPacks = currentPacks.packs.filter(
         (candidate) =>
           Number(candidate.id) === Number(work.id) &&
-          Boolean(candidate.tradeable) === Boolean(work.tradable)
+          Boolean(candidate.tradeable) === Boolean(work.tradable) &&
+          (work.owned === false
+            ? !Boolean(candidate.isMyPack)
+            : Boolean(candidate.isMyPack))
       );
+      const pack = matchingPacks[0];
       if (!pack) {
-        reason = `找不到卡包 ID ${work.id}，任务已停止。`;
-        break;
+        console.warn("[FCX][Pack] 卡包实体已失效，跳过当前队列项", {
+          packId: Number(work.id),
+          tradable: Boolean(work.tradable),
+          queueIndex: cursor,
+        });
+        cursor += 1;
+        continue;
       }
       const localizedPackName = services.Localization.localize(pack.packName);
       reportOperationStatus(
@@ -1365,7 +1399,36 @@ const runPackSelections = async (
         `正在开启第 ${opened + 1} / ${queue.length} 个卡包 · ${localizedPackName}`
       );
       onProgress?.({ opened, total: queue.length, name: localizedPackName });
-      await openPackInstance(pack, options, taskSummary, allowPlayerPicks);
+      let openResult;
+      try {
+        openResult = await openPackInstance(
+          pack,
+          options,
+          taskSummary,
+          allowPlayerPicks
+        );
+      } catch (error) {
+        const status = Number(eaResponseStatus(error) || 0);
+        if (status === 404) {
+          console.warn("[FCX][Pack] EA确认卡包实体已失效，跳过当前队列项", {
+            packId: Number(work.id),
+            tradable: Boolean(work.tradable),
+            queueIndex: cursor,
+          });
+          cursor += 1;
+          continue;
+        }
+        reason = formatPackOpenFailure(localizedPackName, error);
+        console.error("[FCX][Pack] 开包写请求失败，当前批次已结束", {
+          packId: Number(work.id),
+          tradable: Boolean(work.tradable),
+          queueIndex: cursor,
+          status,
+          reason,
+          error,
+        });
+        break;
+      }
       opened += 1;
       cursor += 1;
       taskSummary.packsOpened += 1;
@@ -1379,6 +1442,7 @@ const runPackSelections = async (
       reportOperationStatus("Pack", "正在处理球员挑选与分配物品");
       const processed = await processPackItems(options, taskSummary, {
         allowPlayerPicks,
+        pendingPlayerPickDetected: openResult?.pendingPlayerPick,
       });
       routing = processed.routing;
       selected += processed.selected;
@@ -1408,6 +1472,7 @@ const runPackSelections = async (
               `已插入 ${inserted} 个清仓奖励包，优先处理后再继续原任务`
             );
           }
+          await waitExactMs(PACK_OPEN_SUCCESS_INTERVAL_MS);
           continue;
         }
         reason =
@@ -1417,6 +1482,7 @@ const runPackSelections = async (
         goToUnassignedView();
         break;
       }
+      await waitExactMs(PACK_OPEN_SUCCESS_INTERVAL_MS);
     }
     const cancelled = isTaskCancellationRequested();
     if (cancelled && !reason) reason = "卡包任务已取消。";
@@ -1438,7 +1504,7 @@ const runPackSelections = async (
     return { opened, selected, cancelled, stopped, reason, routing, summary: taskSummary };
   } catch (error) {
     reason = `卡包任务失败：${error?.message || error}`;
-    console.error(reason, error);
+    console.error(reason, { error });
     queueFcxNotification([reason, UINotificationType.NEGATIVE]);
     goToUnassignedView();
     return {
@@ -1488,11 +1554,12 @@ let openPack = async (pack, repeat = 0, allPacks = false) => {
   if (allPacks) {
     const grouped = new Map();
     for (const candidate of available) {
-      const key = `${candidate.id}:${Boolean(candidate.tradeable)}`;
+      const key = `${candidate.id}:${Boolean(candidate.tradeable)}:${Boolean(candidate.isMyPack)}`;
       const current = grouped.get(key);
       grouped.set(key, {
         id: candidate.id,
         tradable: Boolean(candidate.tradeable),
+        owned: Boolean(candidate.isMyPack),
         quantity: (current?.quantity || 0) + 1,
       });
     }
@@ -1502,6 +1569,7 @@ let openPack = async (pack, repeat = 0, allPacks = false) => {
       {
         id: pack.id,
         tradable: Boolean(pack.tradeable),
+        owned: Boolean(pack.isMyPack),
         quantity: repeat > 0 ? repeat : 1,
       },
     ];
@@ -2895,6 +2963,7 @@ const openSbcDetailsModal = async (set, imageUrl, availableSets = []) => {
     const keys = [
       "ratingRange",
       "priceRange",
+      "squadRatingOvershoot",
       "commonOnly",
       "allowExtraRequiredRarityGroupPlayers",
     ];

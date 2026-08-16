@@ -1,8 +1,10 @@
 import type { SbcConsumedPlayerSummary } from "../../types/packs";
+import { readPlayerDefinitionId } from "../inventory/player-identity";
 
 export interface ConsumedPlayerLike {
   id?: unknown;
   definitionId?: unknown;
+  _definitionId?: unknown;
   rating?: unknown;
   _rating?: unknown;
   rareflag?: unknown;
@@ -11,6 +13,7 @@ export interface ConsumedPlayerLike {
   isDuplicate?: unknown;
   isStorage?: unknown;
   _staticData?: {
+    id?: unknown;
     name?: unknown;
     commonName?: unknown;
     lastName?: unknown;
@@ -31,7 +34,7 @@ export function snapshotConsumedPlayers(
   const knownIds = new Set<number>();
   items.forEach((item, slot) => {
     const instanceId = Number(item?.id);
-    const definitionId = Number(item?.definitionId);
+    const definitionId = readPlayerDefinitionId(item);
     if (!Number.isFinite(instanceId) || instanceId <= 0 || knownIds.has(instanceId)) return;
     if (!Number.isFinite(definitionId) || definitionId <= 0) return;
     knownIds.add(instanceId);

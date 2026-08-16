@@ -1153,6 +1153,17 @@ html.fcx-consent-pending .ut-tab-bar-item.icon-fcx-brand {
 .fcx-task-history-detail__section-heading p { margin: 0; }
 .fcx-task-history-detail__section-heading h3 { color: #edf2f8; font-size: 14px; }
 .fcx-task-history-detail__section-heading p { color: #8f9eb2; font-size: 9px; text-align: right; }
+.fcx-task-history-detail__recovery {
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+  border: 1px solid #654735;
+  border-radius: 10px;
+  background: #241d1a;
+}
+.fcx-task-history-detail__recovery strong { color: #ffd09c; font-size: 11px; }
+.fcx-task-history-detail__recovery small { color: #9daabd; font-size: 9px; }
+.fcx-task-history-detail__recovery p { margin: 0; color: #e7edf5; line-height: 1.5; }
 .fcx-task-history-detail__destinations {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1190,6 +1201,10 @@ html.fcx-consent-pending .ut-tab-bar-item.icon-fcx-brand {
 .fcx-routine-field { display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 12px; }
 .fcx-routine-cycle-field[hidden] { display: none; }
 .fcx-routine-field > span { color: #b9c3d1; font-size: 11px; }
+.fcx-routine-field.is-disabled > span,
+.fcx-routine-field.is-disabled select,
+.fcx-routine-field.is-disabled input { opacity: .55; }
+.fcx-routine-recovery-controls { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: center; }
 .fcx-routine-option {
   display: flex;
   align-items: center;
@@ -1220,6 +1235,16 @@ html.fcx-consent-pending .ut-tab-bar-item.icon-fcx-brand {
   border-radius: 9px;
   background: #10161f;
   color: #eef2f7;
+}
+.fcx-routine-field input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.fcx-routine-field input[type="number"]::-webkit-inner-spin-button,
+.fcx-routine-field input[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .fcx-routine-section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .fcx-routine-step-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
@@ -2598,6 +2623,11 @@ html.fcx-consent-pending .ut-tab-bar-item.icon-fcx-brand {
 .fcx-candidate-rules__range input { min-width: 0; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #46536a; border-radius: 8px; background: #0d141d; color: #fff; appearance: textfield; -moz-appearance: textfield; }
 .fcx-candidate-rules__range input::-webkit-inner-spin-button,
 .fcx-candidate-rules__range input::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; appearance: none; }
+.fcx-candidate-rules__number { grid-template-columns: minmax(0, 1fr) minmax(90px, 150px); align-items: center; }
+.fcx-candidate-rules__number small { display: block; margin-top: 3px; color: #94a0b3; font-size: 10px; }
+.fcx-candidate-rules__number input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #46536a; border-radius: 8px; background: #0d141d; color: #fff; appearance: textfield; -moz-appearance: textfield; }
+.fcx-candidate-rules__number input::-webkit-inner-spin-button,
+.fcx-candidate-rules__number input::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; appearance: none; }
 .fcx-candidate-rules__toggle { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 .fcx-candidate-rules__toggle small { display: block; margin-top: 3px; color: #94a0b3; font-size: 10px; }
 .fcx-consumption-summary { display: grid; gap: 14px; }

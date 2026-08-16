@@ -7,6 +7,7 @@ export type PriceRange = [number | null, number | null];
 export interface CandidateRuleSettings {
   ratingRange: [number, number];
   priceRange: PriceRange;
+  squadRatingOvershoot: number;
   commonOnly: boolean;
   allowExtraRequiredRarityGroupPlayers: boolean;
 }
@@ -49,7 +50,8 @@ export const FCX_SBC_RECOMMENDATIONS: Readonly<Record<number, RecommendedCandida
     1327: { minRating: 80 },
     1328: { minRating: 80 },
     1332: { maxRating: 82 },
-    1333: { minRating: 74 },
+    1333: { minRating: 75 },
+    1355: { minRating: 75 },
   });
 
 export const FCX_SBC_MIN_RATING_RECOMMENDATIONS: Readonly<Record<number, number>> =
@@ -86,6 +88,12 @@ export const normalizePriceRange = (value: unknown): PriceRange => {
 
 export const hasActivePriceRange = (range: PriceRange): boolean =>
   range[0] !== null || range[1] !== null;
+
+export const normalizeSquadRatingOvershoot = (value: unknown): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0.8;
+  return Math.round(Math.min(5, Math.max(0, parsed)) * 10) / 10;
+};
 
 type ValueReader = <K extends SettingKey>(
   setId: number | string,
@@ -128,6 +136,9 @@ export function resolveCandidateRules(
   const globalRules: CandidateRuleSettings = {
     ratingRange: normalizeRatingRange(readValue(0, 0, "ratingRange") ?? DEFAULT_RATING_RANGE),
     priceRange: normalizePriceRange(readValue(0, 0, "priceRange")),
+    squadRatingOvershoot: normalizeSquadRatingOvershoot(
+      readValue(0, 0, "squadRatingOvershoot") ?? 0.8,
+    ),
     commonOnly: readValue(0, 0, "commonOnly") === true,
     allowExtraRequiredRarityGroupPlayers:
       readValue(0, 0, "allowExtraRequiredRarityGroupPlayers") === true,
@@ -143,12 +154,14 @@ export function resolveCandidateRules(
   const result: ResolvedCandidateRules = {
     ratingRange: recommendedRating,
     priceRange: recommendedPrice,
+    squadRatingOvershoot: globalRules.squadRatingOvershoot,
     commonOnly: globalRules.commonOnly || recommended?.commonOnly === true,
     allowExtraRequiredRarityGroupPlayers:
       globalRules.allowExtraRequiredRarityGroupPlayers,
     sources: {
       ratingRange: hasRatingRecommendation ? "recommended" : "global",
       priceRange: recommended?.priceRange ? "recommended" : "global",
+      squadRatingOvershoot: "global",
       commonOnly: recommended?.commonOnly === true && !globalRules.commonOnly ? "recommended" : "global",
       allowExtraRequiredRarityGroupPlayers: "global",
     },
@@ -157,6 +170,7 @@ export function resolveCandidateRules(
     for (const key of [
       "ratingRange",
       "priceRange",
+      "squadRatingOvershoot",
       "commonOnly",
       "allowExtraRequiredRarityGroupPlayers",
     ] as const) {
@@ -164,6 +178,9 @@ export function resolveCandidateRules(
       if (value === undefined) continue;
       if (key === "ratingRange") result.ratingRange = normalizeRatingRange(value);
       else if (key === "priceRange") result.priceRange = normalizePriceRange(value);
+      else if (key === "squadRatingOvershoot") {
+        result.squadRatingOvershoot = normalizeSquadRatingOvershoot(value);
+      }
       else result[key] = value === true;
       result.sources[key] = source;
     }

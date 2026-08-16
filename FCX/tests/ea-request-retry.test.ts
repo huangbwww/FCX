@@ -159,6 +159,60 @@ describe("EA request retry", () => {
     expect(factory).toHaveBeenCalledTimes(1);
   });
 
+  it("retries a throttle status outside the SBC gate when explicitly enabled", async () => {
+    vi.useFakeTimers();
+    const factory = vi.fn()
+      .mockImplementationOnce(() => responseOperation({ success: false, status: 429 }))
+      .mockImplementationOnce(() => responseOperation({ success: true, status: 200 }));
+    const pending = executeEaRequest(factory, {
+      label: "打开卡包",
+      maxAttempts: 3,
+      retryDelayMs: 1_000,
+      retryThrottle: true,
+      verifyAfterFailure: async () => ({ state: "not_applied" }),
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(pending).resolves.toMatchObject({ success: true });
+    expect(factory).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("retries only explicitly allowed submit authorization statuses after verification", async () => {
+    vi.useFakeTimers();
+    const factory = vi.fn()
+      .mockImplementationOnce(() => responseOperation({ success: false, status: 403 }))
+      .mockImplementationOnce(() => responseOperation({ success: false, status: 401 }))
+      .mockImplementationOnce(() => responseOperation({ success: true, status: 200 }));
+    const verifyAfterFailure = vi.fn(async () => ({ state: "not_applied" as const }));
+    const pending = executeEaRequest(factory, {
+      label: "提交SBC",
+      maxAttempts: 4,
+      retryDelayScheduleMs: [1000, 2000, 4000],
+      retryStatuses: [401, 403],
+      verifyAfterFailure,
+    });
+    await vi.advanceTimersByTimeAsync(3000);
+    await expect(pending).resolves.toMatchObject({ success: true });
+    expect(factory).toHaveBeenCalledTimes(3);
+    expect(verifyAfterFailure).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("does not replay an explicitly retryable submit when verification sees completion", async () => {
+    const factory = vi.fn(() => responseOperation({ success: false, status: 403 }));
+    const result = await executeEaRequest(factory as never, {
+      label: "提交SBC",
+      maxAttempts: 4,
+      retryStatuses: [401, 403],
+      verifyAfterFailure: async () => ({
+        state: "applied",
+        value: { success: true, status: 200, response: { verified: true } },
+      }),
+    });
+    expect(result).toMatchObject({ success: true, response: { verified: true } });
+    expect(factory).toHaveBeenCalledTimes(1);
+  });
+
   it("shares progressive throttle cooldowns across SBC requests", async () => {
     vi.useFakeTimers();
     const gate = new EaRequestGate(0, [30, 80, 200]);
@@ -209,6 +263,34 @@ describe("EA request retry", () => {
     await vi.advanceTimersByTimeAsync(1);
     await second;
     expect(secondStarted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("applies updated SBC pacing immediately, including zero", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-16T00:00:00Z"));
+    const gate = new EaRequestGate(900, [3000]);
+    await gate.beforeRequest("first");
+    gate.setMinimumIntervalMs(3000);
+    let secondStarted = false;
+    const second = gate.beforeRequest("second").then(() => {
+      secondStarted = true;
+    });
+    await vi.advanceTimersByTimeAsync(2999);
+    expect(secondStarted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await second;
+    gate.setMinimumIntervalMs(0);
+    await expect(gate.beforeRequest("third")).resolves.toBeUndefined();
+    gate.setMinimumIntervalMs(10_000);
+    let fourthStarted = false;
+    const fourth = gate.beforeRequest("fourth").then(() => {
+      fourthStarted = true;
+    });
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(fourthStarted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await fourth;
     vi.useRealTimers();
   });
 

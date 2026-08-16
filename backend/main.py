@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import logging
+import math
 import os
 import signal
 import sys
@@ -10,7 +11,7 @@ import logger  # Import the logger module
 import requests
 import setup
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 # Configure logging
@@ -106,6 +107,7 @@ async def health():
         "solver_features": {
             "strict_rating_window": 1,
             "minimum_rating_first": 2,
+            "configurable_rating_window": 1,
         },
     }
 
@@ -131,9 +133,16 @@ def process_solve_request(request_data):
     logger.clear_logs()  # Clear previous logs
     logger.add_log("SBC Solver started in thread")
 
-    sbcData = request_data["sbcData"]
+    sbcData = dict(request_data["sbcData"])
     clubPlayers = request_data["clubPlayers"]
     maxSolveTime = request_data["maxSolveTime"]
+    try:
+        rating_overshoot = float(request_data.get("ratingOvershoot", 0.8))
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="ratingOvershoot must be a number") from error
+    if not math.isfinite(rating_overshoot) or not 0 <= rating_overshoot <= 5:
+        raise HTTPException(status_code=422, detail="ratingOvershoot must be between 0 and 5")
+    sbcData["ratingOvershoot"] = round(rating_overshoot, 1)
 
     # Log received data
     logger.add_log(f"Processing {len(clubPlayers)} players, max time: {maxSolveTime}s")

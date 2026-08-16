@@ -66,8 +66,56 @@ describe("player protection", () => {
       activeSquadItemIds: new Set([2]),
       protectEvolutions: true,
       protectActiveSquad: true,
+      protectLockedStorageCopies: true,
     });
     expect(filtered.map((item) => item.definitionId)).toEqual([104]);
+  });
+
+  it("protects storage copies that expose only the private definition id", () => {
+    const clubCopy = player(54, 880055);
+    const storageCopy = {
+      id: 55,
+      _definitionId: 880055,
+      assetId: 123,
+      isStorage: true,
+      canRemoveEvolution: () => false,
+      isActiveInTimedEvolution: () => false,
+    } as unknown as EaPlayer;
+    const filtered = filterProtectedPlayers([storageCopy], {
+      lockedDefinitionIds: new Set([880055]),
+      activeSquadItemIds: new Set(),
+      protectEvolutions: false,
+      protectActiveSquad: false,
+      protectLockedStorageCopies: true,
+    });
+    expect(filtered).toEqual([]);
+    expect(filterProtectedPlayers([clubCopy, storageCopy], {
+      lockedDefinitionIds: new Set([880055]),
+      activeSquadItemIds: new Set(),
+      protectEvolutions: false,
+      protectActiveSquad: false,
+      protectLockedStorageCopies: false,
+    })).toEqual([storageCopy]);
+    const reboundStorageCopy = { ...storageCopy, isStorage: false } as EaPlayer;
+    expect(filterProtectedPlayers([reboundStorageCopy], {
+      lockedDefinitionIds: new Set([880055]),
+      activeSquadItemIds: new Set(),
+      protectEvolutions: false,
+      protectActiveSquad: false,
+      protectLockedStorageCopies: false,
+      storageItemIds: new Set([55]),
+    })).toEqual([reboundStorageCopy]);
+  });
+
+  it("defaults storage-copy protection on and persists the user switch", () => {
+    const storage = memoryStorage();
+    const store = new PlayerProtectionStore(storage, 101);
+    expect(store.getSettings().protectLockedStorageCopies).toBe(true);
+    store.setSettings({
+      ...store.getSettings(),
+      protectLockedStorageCopies: false,
+    });
+    expect(new PlayerProtectionStore(storage, 101).getSettings().protectLockedStorageCopies).toBe(false);
   });
 
   it("extracts active squad ids from EA repository player slots", () => {
@@ -232,8 +280,10 @@ describe("player protection", () => {
       personaId: "persona-1",
       lockedDefinitionIds: new Set([109]),
       activeSquadItemIds: new Set([9]),
+      storageItemIds: new Set(),
       protectEvolutions: true,
       protectActiveSquad: true,
+      protectLockedStorageCopies: true,
     });
     expect(violations).toHaveLength(1);
     expect(violations[0]?.reasons).toEqual([

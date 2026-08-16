@@ -1,5 +1,9 @@
 import type { PackTaskSummary } from "../types/packs";
 import type { FcxTaskHistoryRecord, FcxTaskHistoryType } from "../types/task-history";
+import type {
+  RoutineRecoveryErrorEvent,
+  RoutineSolveFailureFallbackEvent,
+} from "../types/routines";
 
 const DATABASE_NAME = "fcx-task-history";
 const STORE_NAME = "records";
@@ -31,6 +35,8 @@ export class TaskHistoryStore {
     type: FcxTaskHistoryType;
     title: string;
     summary: PackTaskSummary;
+    recoveryErrors?: RoutineRecoveryErrorEvent[];
+    solveFailureFallbackEvents?: RoutineSolveFailureFallbackEvent[];
     endedAt?: string;
   }): Promise<FcxTaskHistoryRecord> {
     const endedAt = input.endedAt || new Date().toISOString();
@@ -44,6 +50,16 @@ export class TaskHistoryStore {
       status: taskHistoryStatusFor(reason),
       ...(reason ? { reason } : {}),
       summary: structuredClone(input.summary),
+      ...(input.recoveryErrors?.length
+        ? { recoveryErrors: structuredClone(input.recoveryErrors) }
+        : {}),
+      ...(input.solveFailureFallbackEvents?.length
+        ? {
+            solveFailureFallbackEvents: structuredClone(
+              input.solveFailureFallbackEvents,
+            ),
+          }
+        : {}),
     };
     const database = await this.open();
     const transaction = database.transaction(STORE_NAME, "readwrite");

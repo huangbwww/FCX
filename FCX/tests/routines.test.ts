@@ -75,6 +75,9 @@ describe("FCX routine definitions", () => {
       "futties-provisions-x5",
     ]);
     expect(builtinRoutines.every((routine) => routine.ignoreValue)).toBe(true);
+    expect(builtinRoutines.every((routine) => !routine.fatalRecoveryEnabled)).toBe(true);
+    expect(builtinRoutines.every((routine) => routine.fatalRecoveryMode === "restart")).toBe(true);
+    expect(builtinRoutines.every((routine) => routine.fatalRecoveryMaxReloads === 3)).toBe(true);
     expect(
       builtinRoutines.every(
         (routine) =>
@@ -158,6 +161,8 @@ describe("FCX routine definitions", () => {
       runs: 1,
     });
     expect(custom.storageFallback).toEqual({ enabled: false, setId: 0, runs: 1 });
+    expect(custom.fatalRecoveryEnabled).toBe(false);
+    expect(custom.fatalRecoveryMaxReloads).toBe(3);
     custom.solveFailureFallback = {
       enabled: true,
       setId: 1261,
@@ -278,12 +283,14 @@ describe("FCX routine definitions", () => {
       setId: 0,
       runs: 1,
     });
+    expect(new RoutineStore(storage).get("legacy")?.fatalRecoveryEnabled).toBe(false);
+    expect(new RoutineStore(storage).get("legacy")?.fatalRecoveryMaxReloads).toBe(3);
     expect(new RoutineStore(storage).get("legacy")?.solveFailureFallback).toEqual({
       enabled: false,
       setId: 0,
       runs: 1,
     });
-    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(5);
+    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(8);
   });
 
   it("persists typed pack steps and bounds cycle and step counts", () => {
@@ -296,7 +303,7 @@ describe("FCX routine definitions", () => {
     const saved = new RoutineStore(storage).get(custom.id)!;
     expect(saved.totalCycles).toBe(100);
     expect(saved.steps[0]).toEqual(packStep("pack", 9001, 100, true));
-    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(5);
+    expect(JSON.parse(storage.values.get(ROUTINE_STORAGE_KEY)!).version).toBe(8);
   });
 
   it("ships the mixed step editor and keeps numeric inputs spinner-free", () => {
@@ -323,8 +330,17 @@ describe("FCX routine definitions", () => {
     expect(runtime).toContain("createStorageOverflowRecovery(packExecution)");
     expect(runtime).toContain("runSolveFailureFallback");
     expect(runtime).toContain("shouldTriggerSolveFailureFallback(");
+    expect(runtime).toContain("context.solveFailureFallbackEvents.push(fallbackEvent)");
+    expect(runtime).toContain("failure.failedSetId !== failure.mainSetId");
+    expect(runtime).toContain("主步骤“${failedStepName}”的周黑补给“${failedTargetName}”无解");
     expect(runtime).toContain("isRoutineStepFatal(result.stopKind)");
     expect(runtime).toContain("isSolveFailureFallback");
+    expect(runtime).not.toContain("testRoutineRestartRecovery");
+    expect(runtime).toContain("automaticRecoveryEnabled");
+    expect(source).toContain("流程异常自动刷新恢复（解除300ban之前、没用明白脚本不要开不要开！）");
+    expect(source).toContain("draft.fatalRecoveryEnabled = fatalRecoveryEnabledInput.checked");
+    expect(source).toContain("draft.fatalRecoveryMaxReloads = normalizeRoutineRecoveryMaxReloads(");
+    expect(source).not.toContain('createModalButton("测试恢复")');
     expect(runtime).not.toContain("probeRequestedRuns");
     expect(runtime).not.toContain("probeRepeatable");
   });
@@ -417,6 +433,28 @@ describe("routine scheduling semantics", () => {
       "run:a:1", "reward:a", "run:b:5", "reward:b", "run:open:2",
       "run:a:1", "reward:a", "run:b:5", "reward:b", "run:open:2",
     ]);
+  });
+
+  it("resumes a round-robin step from only its unconfirmed remaining runs", async () => {
+    const calls: Array<[string, number]> = [];
+    const cursors: Array<{ cycle: number; stepIndex: number; completedInStep: number }> = [];
+    const routine = {
+      ...builtinRoutines[0]!,
+      mode: "round_robin" as const,
+      totalCycles: 2,
+      steps: [sbcStep("a", 1, 5), sbcStep("b", 2, 1)],
+    };
+    await runRoutineSchedule(routine, {
+      isCancelled: () => false,
+      onCursorChange: (cursor) => cursors.push({ ...cursor }),
+      runStep: async (step, runs) => {
+        calls.push([step.id, runs]);
+        return { ...done(step.id, stepTargetId(step)), completedRuns: runs, progressUnits: runs };
+      },
+      openRewards: async () => true,
+    }, { cycle: 0, stepIndex: 0, completedInStep: 3 });
+    expect(calls).toEqual([["a", 2], ["b", 1], ["a", 5], ["b", 1]]);
+    expect(cursors).toContainEqual({ cycle: 0, stepIndex: 0, completedInStep: 5 });
   });
 
   it("stops an unlimited cycle plan after a complete zero-progress cycle", async () => {

@@ -2,6 +2,7 @@ import type {
   RoutineDefinition,
   RoutineStep,
   RoutineStepResult,
+  RoutineRecoveryCursor,
 } from "../../types/routines";
 import { isRoutineStepFatal } from "./stop-classification";
 
@@ -10,6 +11,7 @@ export interface RoutineSchedulerHooks {
   runStep(step: RoutineStep, requestedRuns: number): Promise<RoutineStepResult>;
   openRewards(result: RoutineStepResult): Promise<boolean>;
   onCycleStart?(cycle: number, totalCycles: number): void;
+  onCursorChange?(cursor: RoutineRecoveryCursor): void;
 }
 
 export interface RoutineScheduleResult {
@@ -48,6 +50,7 @@ async function finishStep(
 export async function runRoutineSchedule(
   routine: RoutineDefinition,
   hooks: RoutineSchedulerHooks,
+  startCursor: RoutineRecoveryCursor = { cycle: 0, stepIndex: 0, completedInStep: 0 },
 ): Promise<RoutineScheduleResult> {
   const results: RoutineStepResult[] = [];
   const notices: string[] = [];
@@ -57,32 +60,69 @@ export async function runRoutineSchedule(
   };
 
   if (routine.mode === "exhaust_step") {
-    for (const step of routine.steps) {
+    for (let index = Math.max(0, startCursor.stepIndex); index < routine.steps.length; index += 1) {
+      const step = routine.steps[index];
+      if (!step) continue;
       if (hooks.isCancelled()) return { results, notices, stoppedReason: "用户结束了任务" };
-      const result = await hooks.runStep(step, step.runs);
+      const completedBefore = index === startCursor.stepIndex
+        ? Math.max(0, startCursor.completedInStep)
+        : 0;
+      const requestedRuns = step.runs === -1 ? -1 : Math.max(0, step.runs - completedBefore);
+      if (requestedRuns === 0) {
+        hooks.onCursorChange?.({ cycle: 0, stepIndex: index + 1, completedInStep: 0 });
+        continue;
+      }
+      hooks.onCursorChange?.({ cycle: 0, stepIndex: index, completedInStep: completedBefore });
+      const result = await hooks.runStep(step, requestedRuns);
       results.push(result);
       recordNotice(result);
+      hooks.onCursorChange?.({
+        cycle: 0,
+        stepIndex: index,
+        completedInStep:
+          completedBefore + Number(result.progressUnits ?? result.completedRuns + (result.packsOpened || 0)),
+      });
       const stoppedReason = await finishStep(result, hooks);
       if (stoppedReason) return { results, notices, stoppedReason };
+      hooks.onCursorChange?.({ cycle: 0, stepIndex: index + 1, completedInStep: 0 });
     }
     return { results, notices };
   }
 
   const totalCycles = routine.totalCycles === -1 ? -1 : Math.max(1, routine.totalCycles || 5);
-  let cycle = 0;
+  let cycle = Math.max(0, startCursor.cycle);
   while (!hooks.isCancelled() && (totalCycles === -1 || cycle < totalCycles)) {
     hooks.onCycleStart?.(cycle, totalCycles);
     let progressThisCycle = 0;
-    for (const step of routine.steps) {
+    const firstStepIndex = cycle === startCursor.cycle ? Math.max(0, startCursor.stepIndex) : 0;
+    for (let index = firstStepIndex; index < routine.steps.length; index += 1) {
+      const step = routine.steps[index];
+      if (!step) continue;
       if (hooks.isCancelled()) return { results, notices, stoppedReason: "用户结束了任务" };
-      const result = await hooks.runStep(step, step.runs);
+      const completedBefore = cycle === startCursor.cycle && index === startCursor.stepIndex
+        ? Math.max(0, startCursor.completedInStep)
+        : 0;
+      const requestedRuns = step.runs === -1 ? -1 : Math.max(0, step.runs - completedBefore);
+      if (requestedRuns === 0) {
+        hooks.onCursorChange?.({ cycle, stepIndex: index + 1, completedInStep: 0 });
+        continue;
+      }
+      hooks.onCursorChange?.({ cycle, stepIndex: index, completedInStep: completedBefore });
+      const result = await hooks.runStep(step, requestedRuns);
       results.push(result);
       recordNotice(result);
-      progressThisCycle += Number(
+      const progress = Number(
         result.progressUnits ?? result.completedRuns + (result.packsOpened || 0),
       );
+      progressThisCycle += progress;
+      hooks.onCursorChange?.({
+        cycle,
+        stepIndex: index,
+        completedInStep: completedBefore + progress,
+      });
       const stoppedReason = await finishStep(result, hooks);
       if (stoppedReason) return { results, notices, stoppedReason };
+      hooks.onCursorChange?.({ cycle, stepIndex: index + 1, completedInStep: 0 });
     }
     if (progressThisCycle === 0) {
       return {
@@ -92,6 +132,7 @@ export async function runRoutineSchedule(
       };
     }
     cycle += 1;
+    hooks.onCursorChange?.({ cycle, stepIndex: 0, completedInStep: 0 });
   }
   return hooks.isCancelled()
     ? { results, notices, stoppedReason: "用户结束了任务" }

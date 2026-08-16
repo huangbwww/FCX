@@ -1,4 +1,5 @@
 import os
+import math
 import time
 from threading import Timer
 
@@ -40,10 +41,13 @@ def squad_rating_window(target_rating, squad_size, max_overshoot=SQUAD_RATING_MA
     squad_size = int(squad_size)
     if squad_size <= 0:
         raise ValueError("squad_size must be positive")
+    max_overshoot = round(float(max_overshoot), 1)
+    if not math.isfinite(max_overshoot) or not 0 <= max_overshoot <= 5:
+        raise ValueError("max_overshoot must be between 0 and 5")
 
     minimum_hundredths = int(round(float(target_rating) * 100))
     maximum_hundredths = int(
-        round((float(target_rating) + float(max_overshoot)) * 100)
+        round((float(target_rating) + max_overshoot) * 100)
     )
     allowed_totals = [
         rounded_total
@@ -451,6 +455,7 @@ def create_squad_rating_constraint_3(
     num_players,
     squad_rating,
     scope,
+    max_overshoot=SQUAD_RATING_MAX_OVERSHOOT,
 ):
     """Create an exact EA-rating constraint using the active squad size."""
     num_players = int(num_players)
@@ -528,7 +533,11 @@ def create_squad_rating_constraint_3(
             "maximum": target_rating,
         }
     else:
-        rating_window = squad_rating_window(target_rating, num_players)
+        rating_window = squad_rating_window(
+            target_rating,
+            num_players,
+            max_overshoot=max_overshoot,
+        )
         model.Add(
             displayed_rating_hundredths
             >= int(round(rating_window["minimum"] * 100))
@@ -1618,6 +1627,7 @@ def SBC(df, sbc, maxSolveTime):
                     NUM_PLAYERS,
                     req["eligibilityValues"][0],
                     req["scope"],
+                    sbc.get("ratingOvershoot", SQUAD_RATING_MAX_OVERSHOOT),
                 )
             )
             if req["scope"] != "LOWER":

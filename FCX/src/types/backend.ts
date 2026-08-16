@@ -57,6 +57,7 @@ export interface SolveRequest {
   clubPlayers: BackendPlayer[];
   sbcData: SbcData;
   maxSolveTime: number;
+  ratingOvershoot?: number;
 }
 
 export interface RatingOptimizationDiagnostics {
