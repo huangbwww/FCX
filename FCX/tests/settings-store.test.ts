@@ -25,7 +25,7 @@ describe("SettingsStore", () => {
   it("uses safe defaults for automatic pack processing", () => {
     expect(defaultSolverSettings.animateWalkouts).toBe(98);
     expect(defaultSolverSettings.maxSolveTime).toBe(10);
-    expect(defaultSolverSettings.squadRatingOvershoot).toBe(0.8);
+    expect(defaultSolverSettings.squadRatingOvershoot).toBe(1.8);
     expect(defaultSolverSettings.eaRequestMaxAttempts).toBe(3);
     expect(defaultSolverSettings.eaRequestRetryDelaySeconds).toBe(3);
     expect(defaultSolverSettings.eaSbcRequestIntervalMs).toBe(900);
@@ -213,6 +213,32 @@ describe("SettingsStore", () => {
     expect(store.migrateDefaultRatingRange()).toBe(true);
     expect(store.getValue(0, 0, "ratingRange")).toEqual([70, 90]);
     expect(store.getDocument().ratingRangeDefaultsMigrationVersion).toBe(1);
+  });
+
+  it("migrates the old global squad-rating overshoot default once", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("sbcSolverSettings", JSON.stringify({ sbcSettings: {
+      0: { 0: { squadRatingOvershoot: 0.8 } },
+      1017: { 0: { squadRatingOvershoot: 0.8 } },
+    } }));
+    const store = new SettingsStore(storage);
+
+    expect(store.migrateDefaultSquadRatingOvershoot()).toBe(true);
+    expect(store.migrateDefaultSquadRatingOvershoot()).toBe(false);
+    expect(store.getOwnValue(0, 0, "squadRatingOvershoot")).toBe(1.8);
+    expect(store.getOwnValue(1017, 0, "squadRatingOvershoot")).toBe(0.8);
+    expect(store.getDocument().squadRatingOvershootDefaultsMigrationVersion).toBe(1);
+  });
+
+  it("preserves a custom global squad-rating overshoot during migration", () => {
+    const storage = new MemoryStorage();
+    storage.setItem("sbcSolverSettings", JSON.stringify({ sbcSettings: {
+      0: { 0: { squadRatingOvershoot: 2.4 } },
+    } }));
+    const store = new SettingsStore(storage);
+
+    expect(store.migrateDefaultSquadRatingOvershoot()).toBe(true);
+    expect(store.getValue(0, 0, "squadRatingOvershoot")).toBe(2.4);
   });
 
   it("clears retired special-card settings exactly once without touching other rules", () => {

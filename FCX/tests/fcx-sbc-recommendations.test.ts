@@ -21,6 +21,7 @@ describe("FCX SBC recommendation snapshot", () => {
   it("contains the v48 offline recommendations and FCX exceptions", () => {
     expect(FCX_SBC_RULE_SNAPSHOT_VERSION).toBe(48);
     expect(FCX_SBC_RECOMMENDATIONS[1039]).toEqual({ minRating: 75, maxRating: 87 });
+    expect(FCX_SBC_RECOMMENDATIONS[1017]).toEqual({ minRating: 73 });
     expect(FCX_SBC_RECOMMENDATIONS[1321]).toEqual({ minRating: 77, maxRating: 91 });
     expect(FCX_SBC_RECOMMENDATIONS[1332]).toEqual({ maxRating: 82 });
     expect(FCX_SBC_RECOMMENDATIONS[1254]).toEqual({ priceRange: [null, 25_000] });
@@ -46,6 +47,7 @@ describe("FCX SBC recommendation snapshot", () => {
 
   it("applies explicit v48 minimums and preserves unknown defaults", () => {
     const { own, inherited } = readers({ "0:0": { ratingRange: [65, 93] } });
+    expect(resolveCandidateRules(1017, 1, inherited, own).ratingRange).toEqual([73, 93]);
     expect(resolveCandidateRules(1039, 1, inherited, own).ratingRange).toEqual([75, 87]);
     expect(resolveCandidateRules(1333, 1, inherited, own).ratingRange).toEqual([75, 93]);
     expect(resolveCandidateRules(1355, 1, inherited, own).ratingRange).toEqual([75, 93]);
@@ -88,7 +90,7 @@ describe("FCX SBC recommendation snapshot", () => {
   });
 
   it("normalizes the squad-rating overshoot to 0-5 in tenths", () => {
-    expect(normalizeSquadRatingOvershoot(undefined)).toBe(0.8);
+    expect(normalizeSquadRatingOvershoot(undefined)).toBe(1.8);
     expect(normalizeSquadRatingOvershoot(-1)).toBe(0);
     expect(normalizeSquadRatingOvershoot(2.04)).toBe(2);
     expect(normalizeSquadRatingOvershoot(2.06)).toBe(2.1);

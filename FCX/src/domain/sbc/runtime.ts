@@ -995,6 +995,14 @@ const registerSubmittedSbcRewards = (execution, rewards) => {
   if (execution.rewardPlan.unsupportedRewards.length) {
     console.info("[FCX][SBC] unsupported rewards left to EA", {
       rewards: [...execution.rewardPlan.unsupportedRewards],
+      diagnostics: rewards
+        .filter((reward) => reward.kind === "unsupported")
+        .map((reward) => ({
+          id: Number(reward.id || 0),
+          label: String(reward.label || "未识别奖励"),
+          count: Number(reward.count || 0),
+          ...(reward.diagnostic || {}),
+        })),
     });
   }
 };

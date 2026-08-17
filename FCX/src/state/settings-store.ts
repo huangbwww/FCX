@@ -259,6 +259,24 @@ export class SettingsStore {
     return true;
   }
 
+  migrateDefaultSquadRatingOvershoot(): boolean {
+    const document = this.getDocument();
+    if (Number(document.squadRatingOvershootDefaultsMigrationVersion || 0) >= 1) {
+      return false;
+    }
+    const next = structuredClone(document);
+    const globalSettings = next.sbcSettings?.["0"]?.["0"];
+    if (
+      globalSettings
+      && Number(globalSettings.squadRatingOvershoot) === 0.8
+    ) {
+      globalSettings.squadRatingOvershoot = 1.8;
+    }
+    next.squadRatingOvershootDefaultsMigrationVersion = 1;
+    this.replaceDocument(next);
+    return true;
+  }
+
   migrateBackendPort(): boolean {
     const current = this.getValue(0, 0, "backendPort");
     const normalized = parseBackendPort(current);

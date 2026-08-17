@@ -375,9 +375,18 @@ const beginRoutineTask = () => {
   resetTaskCancellation();
 };
 
+const classifyRewardProcessingStatus = (reason) => {
+  const message = String(reason || "");
+  if (/挑选/.test(message)) return "pick_failed";
+  if (/未分配|仓库|转会列表|安置|分配/.test(message)) {
+    return "unassigned_blocked";
+  }
+  return "pack_failed";
+};
+
 const openRoutineRewards = async (result, context, label) => {
   if (!result?.execution) {
-    return true;
+    return { ok: true, status: "no_pending" };
   }
   if (!hasPendingTrackedRewards(result.execution.rewardPlan)) {
     mergePackTaskSummary(context.packSummary, result.execution.packSummary);
@@ -388,17 +397,28 @@ const openRoutineRewards = async (result, context, label) => {
     } catch (error) {
       console.warn("[FCX][Routine] reward-free checkpoint could not be updated", error);
     }
-    return true;
+    return { ok: true, status: "no_pending" };
   }
-  if (context.cancelled || isTaskCancellationRequested()) return false;
+  if (context.cancelled || isTaskCancellationRequested()) {
+    return { ok: false, status: "unassigned_blocked", reason: "用户结束了任务。" };
+  }
   showLoader(true);
-  reportOperationStatus("Pack", `正在处理 ${label} 的准确奖励包`);
+  reportOperationStatus("Pack", `正在处理 ${label} 的准确奖励`);
   const execution = result.execution;
+  // A no-solution result may leave its reason on the shared SBC execution.
+  // Reward processing must report only errors raised by the reward operation.
+  execution.stoppedReason = undefined;
   execution.storageRecoveryCount = Number(context.storageRecoveryCount || 0);
   context.activeRewardExecution = execution;
-  let opened;
+  let opened = false;
+  let thrownError;
   try {
     opened = await openSbcRewardPlan(execution);
+  } catch (error) {
+    thrownError = error;
+    execution.stoppedReason = String(
+      error?.message || error || `${label} 的奖励处理发生异常。`
+    );
   } finally {
     context.activeRewardExecution = undefined;
   }
@@ -409,7 +429,15 @@ const openRoutineRewards = async (result, context, label) => {
     context.stopKind = "pack_failed";
     context.stopReason = execution.stoppedReason || `${label} 的奖励处理失败。`;
     context.pendingReward = snapshotPendingRoutineReward(result);
+    const status = classifyRewardProcessingStatus(context.stopReason);
+    console.warn("[FCX][Routine] reward processing failed", {
+      label,
+      status,
+      reason: context.stopReason,
+      error: thrownError,
+    });
   } else {
+    execution.stoppedReason = undefined;
     context.pendingReward = undefined;
   }
   try {
@@ -417,7 +445,13 @@ const openRoutineRewards = async (result, context, label) => {
   } catch (error) {
     console.warn("[FCX][Routine] reward checkpoint could not be updated", error);
   }
-  return opened;
+  return opened
+    ? { ok: true, status: "processed" }
+    : {
+        ok: false,
+        status: classifyRewardProcessingStatus(context.stopReason),
+        reason: context.stopReason,
+      };
 };
 
 const classifyRoutineStop = (execution, completedRuns) => {
@@ -671,12 +705,13 @@ const runTotwFallback = async (routine, context) => {
           failedSetName: result.setName || `周黑补给 SBC ${fallback.setId}`,
         };
       }
-      if (!(await openRoutineRewards(result, context, "周黑补给"))) {
+      const rewardResult = await openRoutineRewards(result, context, "周黑补给");
+      if (!rewardResult.ok) {
         return {
           success: false,
           completedRuns: completedRuns + 1,
           stopKind: context.stopKind || "pack_failed",
-          reason: context.stopReason || "周黑补给奖励处理失败。",
+          reason: rewardResult.reason || context.stopReason || "周黑补给奖励处理失败。",
           failedSetId: Number(result.setId || fallback.setId),
           failedSetName: result.setName || `周黑补给 SBC ${fallback.setId}`,
         };
@@ -730,18 +765,18 @@ const executeRoutineStepWithTotwFallback = async (
       result.stopKind === "special_shortage"
       && (result.rewardPackIds.length || result.rewardPlayerPickIds?.length)
     ) {
-      const opened = await openRoutineRewards(
+      const rewardResult = await openRoutineRewards(
         result,
         context,
         result.setName || `SBC ${step.setId}`
       );
-      if (!opened) {
+      if (!rewardResult.ok) {
         result = {
           ...result,
           rewardPackIds: [],
           rewardPlayerPickIds: [],
           stopKind: "pack_failed",
-          reason: context.stopReason,
+          reason: rewardResult.reason || context.stopReason,
         };
       } else {
         result = {
@@ -960,19 +995,22 @@ const runSolveFailureFallback = async (
       if (completedThisAttempt > 0) {
         completedRuns += completedThisAttempt;
         if (fallbackEvent) fallbackEvent.completedRuns = completedRuns;
-        const opened = await openRoutineRewards(
+        const rewardResult = await openRoutineRewards(
           result,
           context,
           result.setName || `求解失败补偿 SBC ${fallback.setId}`
         );
-        if (!opened) {
+        if (!rewardResult.ok) {
           return {
             success: false,
             attempted: true,
             fatal: true,
             completedRuns,
             stopKind: context.stopKind || "pack_failed",
-            reason: context.stopReason || "求解失败补偿的奖励处理失败。",
+            reason:
+              rewardResult.reason
+              || context.stopReason
+              || "求解失败补偿的奖励处理失败。",
           };
         }
         if (isRoutineStepFatal(result.stopKind)) {
@@ -1116,30 +1154,40 @@ const executeRoutineStepWithFallback = async (
     requestedRuns: Number(routine.solveFailureFallback.runs),
   });
 
-  if (
-    firstResult.rewardPackIds.length
-    || firstResult.rewardPlayerPickIds?.length
-    || firstResult.execution
-  ) {
-    const opened = await openRoutineRewards(
+  const hasPendingOriginalRewards = Boolean(
+    firstResult.execution
+    && hasPendingTrackedRewards(firstResult.execution.rewardPlan)
+  );
+  if (hasPendingOriginalRewards) {
+    const rewardResult = await openRoutineRewards(
       firstResult,
       context,
       firstResult.setName || `SBC ${step.setId}`
     );
-    if (!opened) {
+    if (!rewardResult.ok) {
       fallbackEvent.outcome = "fallback_failed";
-      fallbackEvent.reason = context.stopReason || "原步骤奖励处理失败。";
+      fallbackEvent.reason =
+        rewardResult.reason || context.stopReason || "原步骤奖励处理失败。";
       return {
         ...firstResult,
         rewardPackIds: [],
         rewardPlayerPickIds: [],
         progressUnits: firstCompleted,
         stopKind: "pack_failed",
-        reason: context.stopReason || "原步骤已完成部分任务，但奖励处理失败。",
+        reason:
+          rewardResult.reason
+          || context.stopReason
+          || "原步骤已完成部分任务，但奖励处理失败。",
       };
     }
+    firstResult.rewardPackIds = [];
+    firstResult.rewardPlayerPickIds = [];
   }
 
+  // The original no-solution stays on firstResult/fallbackEvent. Shared
+  // context markers belong to fatal runtime errors only.
+  context.stopKind = undefined;
+  context.stopReason = undefined;
   const recovery = await runSolveFailureFallback(
     routine,
     context,
@@ -1327,13 +1375,14 @@ const runSbcWithTotwFallback = async ({
       );
     }
     if (autoOpen && hasPendingTrackedRewards(execution.rewardPlan)) {
-      const opened = await openRoutineRewards(
+      const rewardResult = await openRoutineRewards(
         { execution },
         context,
         `主线 ${set.name}`
       );
-      if (!opened && !execution.stoppedReason) {
-        execution.stoppedReason = context.stopReason || "主线奖励包处理失败。";
+      if (!rewardResult.ok && !execution.stoppedReason) {
+        execution.stoppedReason =
+          rewardResult.reason || context.stopReason || "主线奖励包处理失败。";
       }
     } else {
       mergePackTaskSummary(context.packSummary, execution.packSummary);
@@ -1656,14 +1705,18 @@ const runFcxRoutine = async (routine, recoveryCheckpoint = undefined) => {
     if (context.pendingReward) {
       reportOperationStatus("Pack", "正在处理刷新前已确认、但尚未完成的奖励");
       const pendingResult = restorePendingRoutineRewardResult(context.pendingReward);
-      const recovered = await openRoutineRewards(
+      const rewardResult = await openRoutineRewards(
         pendingResult,
         context,
         `SBC ${pendingResult.setId}`
       );
-      if (!recovered) {
+      if (!rewardResult.ok) {
         context.stopKind = "pack_failed";
-        throw new Error(context.stopReason || "中断前的奖励处理恢复失败。");
+        throw new Error(
+          rewardResult.reason
+          || context.stopReason
+          || "中断前的奖励处理恢复失败。"
+        );
       }
       context.pendingReward = undefined;
       if (checkpointAvailable) persistRoutineRecoveryCheckpoint(routine, context);
@@ -1740,12 +1793,12 @@ const runFcxRoutine = async (routine, recoveryCheckpoint = undefined) => {
             }
           }
         }
-        const opened = await openRoutineRewards(
+        const rewardResult = await openRoutineRewards(
           result,
           context,
           `SBC ${result.setId}`
         );
-        if (opened) context.pendingReward = undefined;
+        if (rewardResult.ok) context.pendingReward = undefined;
         else if (result?.execution) context.pendingReward = snapshotPendingRoutineReward(result);
         if (checkpointAvailable) {
           try {
@@ -1755,7 +1808,7 @@ const runFcxRoutine = async (routine, recoveryCheckpoint = undefined) => {
             console.warn("[FCX][Routine] failed to save reward checkpoint", error);
           }
         }
-        return opened;
+        return rewardResult.ok;
       },
     }, startCursor);
     context.notices = [...new Set([...(context.notices || []), ...(schedule.notices || [])])];

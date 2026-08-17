@@ -29,10 +29,10 @@ describe("strict SBC squad rating window", () => {
     expect(calculateEaSquadRating([...Array(5).fill(84), ...Array(6).fill(83)])).toBe(83.73);
   });
 
-  it("resolves a fixed 0.8 window for a minimum team rating", () => {
+  it("resolves the default 1.8 window for a minimum team rating", () => {
     const window = resolveStrictSquadRatingWindow([teamRating(83)]);
-    expect(window).toEqual({ minimum: 83, maximum: 83.8 });
-    expect(formatSquadRatingWindow(window!)).toBe("83.00–83.80");
+    expect(window).toEqual({ minimum: 83, maximum: 84.8 });
+    expect(formatSquadRatingWindow(window!)).toBe("83.00–84.80");
   });
 
   it.each([
@@ -49,12 +49,12 @@ describe("strict SBC squad rating window", () => {
   });
 
   it.each([80, 82, 83, 84, 86, 88, 90])(
-    "builds a dynamic %i.00-%i.80 window without a hard-coded target",
+    "builds a dynamic default window without a hard-coded target for %i",
     (target) => {
       const window = resolveStrictSquadRatingWindow([teamRating(target)]);
-      expect(window).toEqual({ minimum: target, maximum: target + 0.8 });
+      expect(window).toEqual({ minimum: target, maximum: target + 1.8 });
       expect(formatSquadRatingWindow(window!)).toBe(
-        `${target.toFixed(2)}–${(target + 0.8).toFixed(2)}`,
+        `${target.toFixed(2)}–${(target + 1.8).toFixed(2)}`,
       );
     },
   );
@@ -105,7 +105,7 @@ describe("strict SBC squad rating window", () => {
     expect(validateSolverSquadRating(players(Array(11).fill(86)), [teamRating(83)])).toMatchObject({
       ok: false,
       rating: 86,
-      window: { minimum: 83, maximum: 83.8 },
+      window: { minimum: 83, maximum: 84.8 },
     });
     expect(validateSolverSquadRating(players(Array(11).fill(83)), [teamRating(83)])).toMatchObject({
       ok: true,

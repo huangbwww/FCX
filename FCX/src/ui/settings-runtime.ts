@@ -491,6 +491,7 @@ const mountPlayerEvolutionTab = () => {
 sbcSettingsView.prototype.destroyGeneratedElements =
   function destroyGeneratedElements() {
     const session = this.__settingsSession;
+    session?.lockedPlayersPanelDispose?.();
     session?.settings?.dispose();
     if (activeSettingsSession === session) activeSettingsSession = null;
     this.__settingsSession = null;
@@ -502,6 +503,7 @@ sbcSettingsView.prototype._generate = function _generate() {
     settings: new SettingsEditSession(fcxSettingsStore),
     protectionDraft: getPlayerProtectionSettings(),
     footer: null,
+    lockedPlayersPanelDispose: null,
   };
   this.__settingsSession = session;
   activeSettingsSession = session;
@@ -614,7 +616,7 @@ sbcSettingsView.prototype._generate = function _generate() {
   const protectionTile = createSettingsTile(cards, "球员保护", "protection");
   createPlayerProtectionPanel(protectionTile, session);
   const lockedPlayersTile = createSettingsTile(cards, "锁定球员", "lockedPlayers");
-  createLockedPlayersPanel(lockedPlayersTile, session);
+  session.lockedPlayersPanelDispose = createLockedPlayersPanel(lockedPlayersTile, session);
 
   let sbcUITile = createSettingsTile(cards, "显示与价格", "ui");
   createNumberSpinner(
@@ -947,6 +949,15 @@ const createLockedPlayersPanel = (parent, session) => {
     }
   };
 
+  const refreshLockedPanel = () => {
+    renderLocked();
+    const badge = document.querySelector(".fcx-settings-protection-badge strong");
+    if (badge) badge.textContent = String(getLockedItems().length);
+  };
+  const disposeLockedPanelRefresh = registerOpenLockedPlayersPanelRefresh(
+    refreshLockedPanel
+  );
+
   let clubPromise = null;
   let searchTimer;
   search.addEventListener("input", () => {
@@ -1047,6 +1058,7 @@ const createLockedPlayersPanel = (parent, session) => {
     }
   });
   renderLocked();
+  return disposeLockedPanelRefresh;
 };
 
 const createPackSettingsPanel = (parent) => {
@@ -1806,6 +1818,7 @@ let initDefaultSettings = () => {
   migrateMaxRatingSettings();
   fcxSettingsStore.migrateFcxCandidateRules();
   fcxSettingsStore.migrateDefaultRatingRange();
+  fcxSettingsStore.migrateDefaultSquadRatingOvershoot();
   fcxSettingsStore.migrateBackendPort();
   fcxSettingsStore.removeLegacyRepeatCount();
   fcxSettingsStore.removeLegacyUiSettings();

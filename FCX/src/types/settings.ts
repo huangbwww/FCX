@@ -56,6 +56,7 @@ export interface SettingsDocument {
   sbcSettings?: Record<string, Record<string, ScopedSettings>>;
   fcxCandidateRulesMigrationVersion?: number;
   ratingRangeDefaultsMigrationVersion?: number;
+  squadRatingOvershootDefaultsMigrationVersion?: number;
   startupSbcRetirementVersion?: number;
   [section: string]: unknown;
 }

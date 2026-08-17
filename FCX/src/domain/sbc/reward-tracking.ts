@@ -8,6 +8,15 @@ export interface SbcRewardDescriptor {
   id: number;
   count: number;
   label: string;
+  diagnostic?: {
+    type: string;
+    isPack: boolean;
+    isPlayerPick: boolean;
+    itemDefinitionId: number;
+    awardValue: number;
+    itemSubtype: number;
+    reason?: string;
+  };
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -38,40 +47,118 @@ export function isPlayerPickItemLike(value: unknown): boolean {
     || /^PlayerPickItemName/i.test(String(staticData.name || ""));
 }
 
+function hasExplicitPlayerPickFlag(value: unknown): boolean {
+  const record = asRecord(value);
+  if (record.isPlayerPick === true) return true;
+  try {
+    return typeof record.isPlayerPick === "function" && record.isPlayerPick() === true;
+  } catch {
+    return false;
+  }
+}
+
 export function classifySbcRewards(awards: readonly unknown[]): SbcRewardDescriptor[] {
   const rewards: SbcRewardDescriptor[] = [];
   for (const rawAward of awards || []) {
     const award = asRecord(rawAward);
     const item = asRecord(award.item);
     const staticData = asRecord(item._staticData);
-    const id = positiveId(
-      award.value,
-      award.id,
-      award.itemId,
-      item.definitionId,
-      item._definitionId,
-      staticData.id,
-      item.id,
-    );
-    if (!id) continue;
     const count = Math.max(1, Math.trunc(Number(award.count) || 1));
     const label = String(
       staticData.description
       || award.displayName
       || staticData.name
-      || `奖励 ${id}`,
+      || "未识别奖励",
     );
     const type = String(award.type || "").toLowerCase();
-    const playerPick = award.isPlayerPick === true
-      || type === "player_pick"
-      || type === "playerpick"
-      || isPlayerPickItemLike(item);
-    if (award.isPack === true || type === "pack") {
-      rewards.push({ kind: "pack", id, count, label });
-    } else if (playerPick) {
-      rewards.push({ kind: "player_pick", id, count, label });
+    const normalizedType = type.replace(/[\s_-]+/g, "");
+    const playerPick = hasExplicitPlayerPickFlag(award)
+      || normalizedType === "playerpick"
+      || isPlayerPickItemLike(item)
+      || isPlayerPickItemLike(award);
+    const itemDefinitionId = positiveId(
+      item.definitionId,
+      item._definitionId,
+      staticData.id,
+    );
+    const diagnostic = {
+      type,
+      isPack: award.isPack === true,
+      isPlayerPick: playerPick,
+      itemDefinitionId,
+      awardValue: positiveId(award.value),
+      itemSubtype: Number(
+        item.subtype
+        ?? item._subtype
+        ?? staticData.subtype
+        ?? award.subtype
+        ?? award._subtype
+      ) || 0,
+    };
+
+    // Some EA player-pick awards expose a pack-like outer wrapper. The item
+    // metadata is authoritative so a confirmed pick must win over isPack/type.
+    if (playerPick) {
+      const playerPickId = positiveId(
+        item.definitionId,
+        item._definitionId,
+        staticData.id,
+        award.itemId,
+        award.value,
+        award.id,
+        item.id,
+      );
+      if (playerPickId) {
+        rewards.push({ kind: "player_pick", id: playerPickId, count, label });
+      } else {
+        rewards.push({
+          kind: "unsupported",
+          id: 0,
+          count,
+          label,
+          diagnostic: { ...diagnostic, reason: "missing_player_pick_id" },
+        });
+      }
+    } else if (award.isPack === true || type === "pack") {
+      const packId = positiveId(
+        award.value,
+        award.id,
+        award.itemId,
+        item.definitionId,
+        item._definitionId,
+        staticData.id,
+        item.id,
+      );
+      if (packId) {
+        rewards.push({ kind: "pack", id: packId, count, label });
+      } else {
+        rewards.push({
+          kind: "unsupported",
+          id: 0,
+          count,
+          label,
+          diagnostic: { ...diagnostic, reason: "missing_pack_id" },
+        });
+      }
     } else {
-      rewards.push({ kind: "unsupported", id, count, label });
+      const unsupportedId = positiveId(
+        item.definitionId,
+        item._definitionId,
+        staticData.id,
+        award.itemId,
+        award.value,
+        award.id,
+        item.id,
+      );
+      rewards.push({
+        kind: "unsupported",
+        id: unsupportedId,
+        count,
+        label: label === "未识别奖励" && unsupportedId
+          ? `奖励 ${unsupportedId}`
+          : label,
+        diagnostic,
+      });
     }
   }
   return rewards;

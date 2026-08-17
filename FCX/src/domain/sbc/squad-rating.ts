@@ -5,7 +5,7 @@ import type {
 } from "../../types/backend";
 import { normalizeSquadRatingOvershoot } from "../../config/fcx-sbc-recommendations";
 
-export const STRICT_SQUAD_RATING_OVERSHOOT = 0.8;
+export const STRICT_SQUAD_RATING_OVERSHOOT = 1.8;
 
 export interface StrictSquadRatingWindow {
   minimum: number;

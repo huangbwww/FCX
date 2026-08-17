@@ -87,6 +87,16 @@ describe("storage overflow fallback", () => {
     expect(sbcRuntime).toContain("当前没有可执行的下一轮挑战，本步骤已结束");
     expect(packRuntime).toContain("insertImmediatePackSelections(");
     expect(packRuntime).toContain("markRewardPacksProcessed(work.rewardPlan");
+    const cleanupPickIndex = packRuntime.indexOf(
+      "const picksHandled = await processTrackedSbcPlayerPicks",
+    );
+    const cleanupPackIndex = packRuntime.indexOf(
+      "const selections = Object.keys(cleanupExecution.rewardPlan.expectedById).length",
+    );
+    expect(cleanupPickIndex).toBeGreaterThan(-1);
+    expect(cleanupPickIndex).toBeLessThan(cleanupPackIndex);
+    expect(packRuntime).toContain("PLAYER_PICK_REWARD_ATTEMPTS");
+    expect(packRuntime).toContain("PLAYER_PICK_REWARD_WAIT_MS");
     expect(inventoryRuntime).toContain('"transfer_full"');
     expect(inventoryRuntime).toContain('"storage_full"');
     expect(packRuntime).not.toContain(

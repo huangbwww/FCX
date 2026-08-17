@@ -83,6 +83,38 @@ describe("special fallback UI wiring", () => {
     expect(runtime).toContain("[FCX][Routine] 缺少特殊卡，已跳过步骤");
   });
 
+  it("does not let an empty reward execution mask a solve failure", () => {
+    const runtime = source("../src/domain/routines/runtime.ts");
+    const solveFailureBlock = runtime.slice(
+      runtime.indexOf("const executeRoutineStepWithFallback"),
+      runtime.indexOf("const runSbcWithTotwFallback"),
+    );
+
+    expect(solveFailureBlock).toContain("hasPendingOriginalRewards");
+    expect(solveFailureBlock).toContain(
+      "hasPendingTrackedRewards(firstResult.execution.rewardPlan)",
+    );
+    expect(solveFailureBlock).not.toContain("|| firstResult.execution");
+    expect(solveFailureBlock).toContain("if (!rewardResult.ok)");
+    expect(solveFailureBlock).toContain("runSolveFailureFallback(");
+    expect(solveFailureBlock.indexOf("context.stopKind = undefined")).toBeLessThan(
+      solveFailureBlock.indexOf("runSolveFailureFallback("),
+    );
+  });
+
+  it("keeps reward processing results separate from stale SBC stop reasons", () => {
+    const runtime = source("../src/domain/routines/runtime.ts");
+    const rewardBlock = runtime.slice(
+      runtime.indexOf("const openRoutineRewards"),
+      runtime.indexOf("const classifyRoutineStop"),
+    );
+
+    expect(rewardBlock).toContain("execution.stoppedReason = undefined");
+    expect(rewardBlock).toContain('status: "no_pending"');
+    expect(rewardBlock).toContain('status: "processed"');
+    expect(rewardBlock).toContain("classifyRewardProcessingStatus");
+  });
+
   it("keeps the new controls inside the existing FCX responsive design system", () => {
     const css = source("../src/ui/base-runtime.ts");
 

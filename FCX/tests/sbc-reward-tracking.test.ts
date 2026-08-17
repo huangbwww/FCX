@@ -30,7 +30,20 @@ describe("SBC reward tracking", () => {
     ])).toEqual([
       { kind: "pack", id: 101, count: 2, label: "奖励包" },
       { kind: "player_pick", id: 202, count: 1, label: "87+ 球员挑选" },
-      { kind: "unsupported", id: 303, count: 1, label: "其他物品" },
+      {
+        kind: "unsupported",
+        id: 303,
+        count: 1,
+        label: "其他物品",
+        diagnostic: {
+          type: "item",
+          isPack: false,
+          isPlayerPick: false,
+          itemDefinitionId: 0,
+          awardValue: 303,
+          itemSubtype: 0,
+        },
+      },
     ]);
   });
 
@@ -61,6 +74,79 @@ describe("SBC reward tracking", () => {
       id: 505,
       count: 1,
       label: "显式挑选奖励",
+    }]);
+  });
+
+  it("prioritizes confirmed player-pick metadata over a pack-like award wrapper", () => {
+    expect(classifySbcRewards([{
+      type: "pack",
+      isPack: true,
+      value: 999,
+      item: {
+        _definitionId: 606,
+        _subtype: 237,
+        _staticData: {
+          id: 606,
+          name: "PlayerPickItemName_606",
+          description: "清仓球员挑选",
+        },
+      },
+    }])).toEqual([{
+      kind: "player_pick",
+      id: 606,
+      count: 1,
+      label: "清仓球员挑选",
+    }]);
+  });
+
+  it("recognizes normalized player-pick types and outer reward metadata", () => {
+    expect(classifySbcRewards([{
+      type: "player-pick",
+      subtype: 237,
+      itemId: 808,
+      displayName: "外层球员挑选",
+    }])).toEqual([{
+      kind: "player_pick",
+      id: 808,
+      count: 1,
+      label: "外层球员挑选",
+    }]);
+  });
+
+  it("uses the player-pick item definition before an unrelated award value", () => {
+    expect(classifySbcRewards([{
+      type: "item",
+      value: 777,
+      item: {
+        definitionId: 707,
+        subtype: 237,
+        _staticData: { description: "延迟到账挑选" },
+      },
+    }])).toEqual([{
+      kind: "player_pick",
+      id: 707,
+      count: 1,
+      label: "延迟到账挑选",
+    }]);
+  });
+
+  it("keeps safe diagnostics for rewards without a usable identifier", () => {
+    expect(classifySbcRewards([{
+      type: "item",
+      displayName: "未知奖励",
+    }])).toEqual([{
+      kind: "unsupported",
+      id: 0,
+      count: 1,
+      label: "未知奖励",
+      diagnostic: {
+        type: "item",
+        isPack: false,
+        isPlayerPick: false,
+        itemDefinitionId: 0,
+        awardValue: 0,
+        itemSubtype: 0,
+      },
     }]);
   });
 

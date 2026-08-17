@@ -198,7 +198,7 @@ export function createCandidateRulesEditor(options: CandidateRulesEditorOptions)
     0,
     5,
     0.1,
-    "例如要求 83，设置 0.8 时接受 83.00–83.80。",
+    "例如要求 83，设置 1.8 时接受 83.00–84.80。",
   );
   toggle("只用普通卡", "commonOnly", "仅允许 EA 卡片 rareflag = 0；稀有金卡和特殊卡都会被排除。 ");
   toggle(

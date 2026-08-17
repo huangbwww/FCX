@@ -29,7 +29,7 @@ export const FCX_SBC_RULE_SNAPSHOT_CAPTURED_AT = "2026-08-12";
 /** FCX-owned, offline snapshot. It is never fetched while the userscript runs. */
 export const FCX_SBC_RECOMMENDATIONS: Readonly<Record<number, RecommendedCandidateRule>> =
   Object.freeze({
-    1017: { minRating: 74 },
+    1017: { minRating: 73 },
     1038: { maxRating: 82, commonOnly: true },
     1039: { minRating: 75, maxRating: 87 },
     1254: { priceRange: [null, 25_000] },
@@ -91,7 +91,7 @@ export const hasActivePriceRange = (range: PriceRange): boolean =>
 
 export const normalizeSquadRatingOvershoot = (value: unknown): number => {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 0.8;
+  if (!Number.isFinite(parsed)) return 1.8;
   return Math.round(Math.min(5, Math.max(0, parsed)) * 10) / 10;
 };
 
@@ -137,7 +137,7 @@ export function resolveCandidateRules(
     ratingRange: normalizeRatingRange(readValue(0, 0, "ratingRange") ?? DEFAULT_RATING_RANGE),
     priceRange: normalizePriceRange(readValue(0, 0, "priceRange")),
     squadRatingOvershoot: normalizeSquadRatingOvershoot(
-      readValue(0, 0, "squadRatingOvershoot") ?? 0.8,
+      readValue(0, 0, "squadRatingOvershoot") ?? 1.8,
     ),
     commonOnly: readValue(0, 0, "commonOnly") === true,
     allowExtraRequiredRarityGroupPlayers:

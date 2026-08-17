@@ -10,6 +10,7 @@ describe("player protection runtime wiring", () => {
   const inventory = source("../src/domain/inventory/runtime.ts");
   const sbc = source("../src/domain/sbc/runtime.ts");
   const settings = source("../src/ui/settings-runtime.ts");
+  const itemHooks = source("../src/hooks/items-runtime.ts");
 
   it("fails closed when the active squad cannot be read", () => {
     expect(inventory).toContain("resolveActiveSquadEntity(response)");
@@ -59,5 +60,22 @@ describe("player protection runtime wiring", () => {
     expect(sbc.indexOf('"整组提交阵容前"')).toBeLessThan(
       sbc.indexOf("await sbcSubmit(controller._challenge, live.set)"),
     );
+  });
+
+  it("refreshes the open locked-player list without changing the original lock flow", () => {
+    expect(inventory).toContain("registerOpenLockedPlayersPanelRefresh");
+    expect(inventory).toContain("refreshOpenLockedPlayersPanel");
+    expect(inventory).not.toContain("PLAYER_PROTECTION_CHANGED_EVENT");
+    expect(inventory).not.toContain("notifyPlayerProtectionChanged");
+
+    expect(settings).toContain("renderResults(players)");
+    expect(settings).toContain("renderLocked()");
+    expect(settings).toContain("lockedPlayersPanelDispose");
+    expect(settings).not.toContain("handleProtectionChanged");
+    expect(settings).not.toContain("disconnectObserver");
+
+    expect(itemHooks).toContain("refreshOpenLockedPlayersPanel()");
+    expect(itemHooks).not.toContain("fcxCurrentLockItem");
+    expect(itemHooks).not.toContain("syncPlayerLockButton");
   });
 });

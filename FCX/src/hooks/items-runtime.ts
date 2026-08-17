@@ -802,6 +802,7 @@ const playerItemOverride = () => {
             button.setText(lockedLabel);
             showNotification(`球员已锁定`, UINotificationType.POSITIVE);
           }
+          refreshOpenLockedPlayersPanel();
           getControllerInstance().applyDataChange();
           getCurrentViewController()
             .getCurrentController()
@@ -893,6 +894,7 @@ const playerItemOverride = () => {
               button.setText(lockedLabel);
               showNotification(`球员已锁定`, UINotificationType.POSITIVE);
             }
+            refreshOpenLockedPlayersPanel();
             try {
               getCurrentViewController()
                 .getCurrentController()

@@ -1157,10 +1157,28 @@ const createStorageOverflowRecovery = (execution) => {
       }
 
       latestRewardPlan = cleanupExecution.rewardPlan;
+      console.info("[FCX][Pack] storage cleanup reward plan", {
+        recoveryRound,
+        setId: Number(config.setId),
+        packExpected: { ...cleanupExecution.rewardPlan.expectedById },
+        playerPickExpected: {
+          ...cleanupExecution.rewardPlan.playerPickExpectedById,
+        },
+        unsupported: [...cleanupExecution.rewardPlan.unsupportedRewards],
+      });
       const picksHandled = await processTrackedSbcPlayerPicks(
         cleanupExecution,
         options
       );
+      console.info("[FCX][Pack] storage cleanup player picks", {
+        recoveryRound,
+        setId: Number(config.setId),
+        handled: picksHandled,
+        expected: { ...cleanupExecution.rewardPlan.playerPickExpectedById },
+        processed: { ...cleanupExecution.rewardPlan.processedPlayerPickById },
+        routingStopCode: cleanupExecution.lastUnassignedRouting?.stopCode,
+        reason: picksHandled ? undefined : cleanupExecution.stoppedReason,
+      });
       if (!picksHandled) {
         const pickRouting = cleanupExecution.lastUnassignedRouting;
         if (pickRouting?.stopCode !== "storage_full") {
@@ -1199,6 +1217,16 @@ const createStorageOverflowRecovery = (execution) => {
           reason: "清仓 SBC 已完成，但奖励卡包尚未到账。",
         };
       }
+      console.info("[FCX][Pack] storage cleanup reward packs", {
+        recoveryRound,
+        setId: Number(config.setId),
+        pending: pendingPacks,
+        selections: selections.map((selection) => ({
+          id: Number(selection.id || 0),
+          tradable: Boolean(selection.tradable),
+          quantity: Number(selection.quantity || 0),
+        })),
+      });
       rewardSelections.push(
         ...selections.map((selection) => ({
           ...selection,

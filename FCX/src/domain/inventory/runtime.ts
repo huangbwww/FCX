@@ -765,6 +765,25 @@ const getPlayerProtectionStore = () => {
   return playerProtectionStore;
 };
 
+let openLockedPlayersPanelRefresh = null;
+
+const registerOpenLockedPlayersPanelRefresh = (refresh) => {
+  openLockedPlayersPanelRefresh = typeof refresh === "function" ? refresh : null;
+  return () => {
+    if (openLockedPlayersPanelRefresh === refresh) {
+      openLockedPlayersPanelRefresh = null;
+    }
+  };
+};
+
+const refreshOpenLockedPlayersPanel = () => {
+  try {
+    openLockedPlayersPanelRefresh?.();
+  } catch (error) {
+    console.warn("[FCX][Protection] 已打开的锁定列表刷新失败", error);
+  }
+};
+
 const getSubmissionCounter = () => {
   const personaId = getCurrentPersonaId();
   if (!submissionCounter || submissionCounterPersonaId !== personaId) {

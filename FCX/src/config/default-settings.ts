@@ -23,7 +23,7 @@ export const defaultSolverSettings: SolverSettings = {
   animateWalkouts: 98,
   autoSubmit: 1,
   maxSolveTime: 10,
-  squadRatingOvershoot: 0.8,
+  squadRatingOvershoot: 1.8,
   priceCacheMinutes: 1440,
   ratingRange: [...DEFAULT_RATING_RANGE],
   priceRange: [null, null],
